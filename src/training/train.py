@@ -13,7 +13,6 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.models.baselines.gcn_lstm import GCNLSTM
 from src.evaluation.metrics import compute_all
-from src.utils.paths import VISUALIZATION_DIR, EXTERNAL_DIR
 from src.models.baselines.lstm import LSTMModel
 from src.models.model_utils import count_parameters
 from src.utils.paths import CONFIG_DIR, MODELS_SAVED_DIR, PROCESSED_DIR, RESULTS_DIR, SPLITS_DIR
@@ -133,6 +132,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--gcn_layers", type=int, default=None)
+    parser.add_argument("--lstm_layers", type=int, default=None)
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -141,19 +142,25 @@ def main():
     T = args.input_steps or config["input_steps"]
     H = args.horizon or config["horizon"]
     tc = config["train"]
+    lstm_layers = args.lstm_layers or tc["lstm_layers"]
+    gcn_layers = args.gcn_layers or tc["gcn_layers"] if args.model != "lstm" else 0
+
     epochs, lr = args.epochs or tc["epochs"], args.lr or tc["lr"]
     seed = args.seed if args.seed is not None else config["seed"]
+    dropout = config["model"]["dropout"]
+
     set_seed(seed)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     data, meta = prepare(config, station, T, H, str(args.model))
-    adj = np.load(EXTERNAL_DIR / "adjacency_matrix.npy") if args.model != "lstm" else None
+
     cls, group = MODELS[args.model]
 
     model = cls(in_dim=meta["in_dim"], horizon=H, hidden=config["model"]["hidden"],
-                dropout=config["model"]["dropout"]).to(device)
+                dropout=dropout).to(device)
 
-    print(f"{args.model} | {station} | T={T} H={H} | params={count_parameters(model):,} | device={device}")
+    print(f"{args.model} | {station} | T={T} H={H} | gcn_layers={gcn_layers} | lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
 
     mk = lambda k: DataLoader(TensorDataset(*data[k][:3]), batch_size=tc["batch_size"],
                                              shuffle=False, num_workers=tc["num_workers"])
@@ -161,7 +168,7 @@ def main():
     train_dl, val_dl = mk("train"), mk("val")
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=tc["weight_decay"])
 
-    tag = f"{args.model}_{station}_T{T}_H{H}_s{seed}"
+    tag = f"{args.model}_{station}_T{T}_H{H}_gcn_l{gcn_layers}_lstm_l{lstm_layers}_s{seed}"
     checkpoint_dir = MODELS_SAVED_DIR / "checkpoints"
     best_model_path = checkpoint_dir / group / f"{tag}.pt"
     fig_dir = RESULTS_DIR / "figures"
@@ -226,7 +233,9 @@ def main():
     df.to_csv(RESULTS_DIR / "predictions" / f"{tag}", index=True)
 
     with open(RESULTS_DIR / "metrics" / f"{tag}.json", "w") as f:
-        json.dump({"model": args.model, "station": station, "T": T, "H": H, "seed": seed, "lr": lr,
+        json.dump({"model": args.model, "station": station, "T": T, "H": H,
+                   "gcn_layers": gcn_layers, "lstm_layers": lstm_layers,
+                   "seed": seed, "lr": lr,
                    "best_val_rmse": best_rmse, "test": metrics}, f, indent=2)
 
     hist_df = pd.DataFrame(history)

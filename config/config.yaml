@@ -10,6 +10,8 @@ model:
 train:
   epochs: 200
   batch_size: 32
+  gcn_layers: 2
+  lstm_layers: 1
   lr: 0.001
   weight_decay: 0.0
   grad_clip: 5.0

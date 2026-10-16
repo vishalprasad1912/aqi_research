@@ -30,7 +30,7 @@ class GraphConv(nn.Module):
 
 class GCNLSTM(nn.Module):
     def __init__(self, in_dim, horizon=1,
-                 hidden=64, gcn_layers=2, num_lstm_layers=1, dropout=0.5, **kwargs):
+                 hidden=64, gcn_layers=2, lstm_layers=1, dropout=0.5, **kwargs):
         super().__init__()
         adj = get_adjacency()
         assert adj is not None, "GCN-LSTM needs an adjacency matrix"
@@ -40,7 +40,7 @@ class GCNLSTM(nn.Module):
         lstm_in_dim = dims[-1]
         self.gcn = nn.ModuleList(GraphConv(dims[i], dims[i + 1]) for i in range(gcn_layers))
         self.drop = nn.Dropout(dropout)
-        self.lstm = LSTMModel(lstm_in_dim, self.horizon, hidden, num_lstm_layers, dropout)
+        self.lstm = LSTMModel(lstm_in_dim, self.horizon, hidden, lstm_layers, dropout)
         self.norm = nn.LayerNorm(hidden)
         self.head = PredictionHead(hidden, self.horizon, dropout)
 
