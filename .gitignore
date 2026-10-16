@@ -1,7 +1,11 @@
-data/raw/
+.idea/
+data/raw
 docs/research_notes.md
 docs/preprocessing_decisions.md
 .aqi_research.py3.12
-notebooks/
-results/
+notebooks
+results
 src/training/train_copy.py
+github_commands.md
+*.pyc
+__pycache__/

@@ -26,15 +26,6 @@ MODELS = {
     # "glstm_block": (GLSTMBlockModel, "proposed"),
 }
 
-# def load_station_df(station, date_col="Timestamp"):
-#     df = pd.read_csv(PROCESSED_DIR / f"{station}")
-#     df[date_col] = pd.to_datetime(df[date_col])
-#     df = df.set_index(date_col)
-#     float_cols = df.select_dtypes(include=["float64"]).columns
-#     df[float_cols] = df[float_cols].astype("float32")
-#     target_index = 0
-#     return df, df.index, target_index
-
 def load_station_df(station):
     data = np.load(PROCESSED_DIR / "stations_data.npz", allow_pickle=True)
     station_names = data["station_names"]
@@ -44,39 +35,47 @@ def load_station_df(station):
         for idx, name in enumerate(station_names)
     }
     all_values = np.stack(
-        [data[f"station_{i}"][:, 1:] for i in station_names],
+        [data[f"station_{i}"][:, 1:].astype(np.float32) for i in station_names],
         axis=0
     )
     all_values = np.transpose(all_values, (1, 0, 2))
     values = data[f"station_{station}"]
-    target_index = station_to_idx[station]
-    return values[:, 1:], values[:, 0], target_index, all_values
+    ts = pd.to_datetime(values[:, 0])
+    target_idx = station_to_idx[station]
+    return ts, target_idx, all_values
 
 def time_codes(ts):
     # (T_total, 3) long: hour 0-23, weekday 0-6, month 0-11
     return np.stack([ts.hour, ts.dayofweek, ts.month - 1], axis=1).astype(np.int32)
 
-def make_windows(values, T, H, tcodes, features_idx=[0, 1]):
+def make_windows(all_values, T, H, target_idx, tcodes, model_type, features_idx=[0, 1]):
     # input rows [i, i+T), target rows [i+T, i+T+H)
-    instances = len(values) - T - H + 1
-    X = np.stack([values[i:i + T] for i in range(instances)]) # (instances, T, N, F)
-    Y = np.stack([values[i + T:i + T + H, features_idx] for i in range(instances)])  # (instances, H)
-    TC = np.stack([tcodes[i : i+T] for i in range(instances)]) # (instances, T, 3)
+    instances = len(all_values) - T - H + 1
+
+    if model_type == "lstm":
+        X = np.stack([all_values[i:i + T, target_idx] for i in range(instances)]) # (instances, T, F)
+        Y = np.stack([all_values[i + T:i + T + H, target_idx, features_idx] for i in range(instances)])  # (instances, H, 2)
+    else:
+        X = np.stack([all_values[i:i + T] for i in range(instances)]) # (instances, T, N, F)
+        Y = np.stack([all_values[i + T:i + T + H, :, features_idx] for i in range(instances)])  # (instances, H, 2)
+
+    TC = np.stack([tcodes[i: i + T] for i in range(instances)])  # (instances, T, 3)
+
     return X, Y, TC
 
-def prepare(config, station, T, H):
-    values, ts, target_idx, all_values = load_station_df(station)
-    instances = values.shape[0] - T - H + 1
+def prepare(config, station, T, H, model_type):
+    ts, target_idx, all_values = load_station_df(station)
+    instances = all_values.shape[0] - T - H + 1
     tr_instances = int(instances * config["split"]["train"])
     vl_instances = int(instances * config["split"]["val"])
 
-    train_rows = values[: tr_instances + T + H - 1]
+    train_rows = all_values[: tr_instances + T + H - 1]
     vmin = np.min(train_rows, axis=0)
     vmax = np.max(train_rows, axis=0)
     scale = np.where(vmax - vmin == 0, 1.0, vmax - vmin)
-    scaled = (values - vmin) / scale
+    scaled = (all_values - vmin) / scale
 
-    X, Y, TC = make_windows(scaled, T, H, time_codes(ts))
+    X, Y, TC = make_windows(scaled, T, H, target_idx, time_codes(ts), model_type)
 
     sl = {
         "train": slice(0, tr_instances),
@@ -89,8 +88,8 @@ def prepare(config, station, T, H):
         json.dump({k: [s.start, s.stop] for k, s in sl.items()}, f)
 
     data = {k: (torch.from_numpy(X[s]), torch.from_numpy(Y[s]), torch.from_numpy(TC[s])) for k, s in sl.items()}
-    meta = dict(target_idx=target_idx, in_dim=X.shape[-1], num_nodes=X.shape[2], y_min=vmin[target_idx],
-                y_scale=scale[target_idx], timestamps=np.asarray(ts), test_start=sl["test"].start)
+    meta = dict(target_idx=target_idx, in_dim=X.shape[-1], num_nodes=X.shape[2], y_min=vmin[target_idx, [0,1]],
+                y_scale=scale[target_idx, [0,1]], timestamps=np.asarray(ts), test_start=sl["test"].start)
     return data, meta
 
 # model train and eval
@@ -100,7 +99,8 @@ def run_epoch(model, loader, device, optimizer=None, grad_clip=None):
     criterion, total_loss, instance_count = nn.MSELoss(), 0.0, 0
     with torch.set_grad_enabled(train):
         for x, y, tc in loader:
-            x, y, tc = x.to(device), y.to(device), tc.to(device) # x-> [B, T, N, F], y-> [B, T, N, 1], tc-> [B, T, 3]
+            B, T, N, _ = x.shape
+            x, y, tc = x.to(device), y.to(device), tc.to(device) # x-> [B, T, N, F], y-> [B, T, N, 2], tc-> [B, T, 3]
             # batch_pred = model(x, tc)
             batch_pred = model(x)
             batch_loss = criterion(y, batch_pred)
@@ -115,7 +115,7 @@ def run_epoch(model, loader, device, optimizer=None, grad_clip=None):
     return total_loss / instance_count
 
 @torch.no_grad()
-def predict(model, X, TC, device, y_min=0, y_scale=0, bs=256):
+def predict(model, X, device, y_min=0, y_scale=0, bs=256):
     model.eval()
     out = []
     for i in range(0, len(X), bs):
@@ -146,18 +146,13 @@ def main():
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    data, meta = prepare(config, station, T, H)
+    data, meta = prepare(config, station, T, H, str(args.model))
     adj = np.load(EXTERNAL_DIR / "adjacency_matrix.npy") if args.model != "lstm" else None
     cls, group = MODELS[args.model]
-    if args.model == "lstm":
-        model = cls(in_dim=meta["in_dim"], horizon=H, hidden=config["model"]["hidden"],
-                    dropout=config["model"]["dropout"]).to(device)
-    else:
-        model = cls(in_dim=meta["in_dim"], target_idx=meta["target_idx"],
-                    horizon=H, adj=adj, hidden=config["model"]["hidden"],
-                    dropout=config["model"]["dropout"]).to(device)
-    # model = cls(in_dim=meta["in_dim"], target_idx=meta["target_idx"],
-    #             horizon=H, hidden=config["model"]["hidden"], dropout=config["model"]["dropout"]).to(device)
+
+    model = cls(in_dim=meta["in_dim"], horizon=H, hidden=config["model"]["hidden"],
+                dropout=config["model"]["dropout"]).to(device)
+
     print(f"{args.model} | {station} | T={T} H={H} | params={count_parameters(model):,} | device={device}")
 
     mk = lambda k: DataLoader(TensorDataset(*data[k][:3]), batch_size=tc["batch_size"],
@@ -182,12 +177,10 @@ def main():
 
         val_loss = run_epoch(model, val_dl, device)
 
-        val_rmse = compute_all((Y_val.cpu().numpy() * meta["y_scale"]) + meta["y_min"],
-                               predict(model, X_val, TC_val, device, meta["y_min"], meta["y_scale"]))["RMSE"]
-        val_mae = compute_all((Y_val.cpu().numpy() * meta["y_scale"]) + meta["y_min"],
-                               predict(model, X_val, TC_val, device, meta["y_min"], meta["y_scale"]))["MAE"]
-        val_r2 = compute_all((Y_val.cpu().numpy() * meta["y_scale"]) + meta["y_min"],
-                              predict(model, X_val, TC_val, device, meta["y_min"], meta["y_scale"]))["R2"]
+        val_metrics = compute_all((Y_val.cpu().numpy() * meta["y_scale"]) + meta["y_min"],
+                               predict(model, X_val, device, meta["y_min"], meta["y_scale"]))
+
+        val_rmse, val_mae, val_r2 = val_metrics["RMSE"], val_metrics["MAE"], val_metrics["R2"]
 
         history.append({"epoch": epoch, "train_mse_scaled": train_loss, "val_mse_scaled": val_loss,
                         "val_rmse": val_rmse, "val_mae": val_mae})
@@ -207,12 +200,13 @@ def main():
     # test
     model.load_state_dict(torch.load(best_model_path, map_location=device))
     X_test, Y_test, TC_test = data["test"]
-    pred = predict(model, X_test, TC_test, device, meta["y_min"], meta["y_scale"])
-    Y_test_scaled = (Y_test.cpu().numpy() * meta["y_scale"]) + meta["y_min"]
+    pred = predict(model, X_test, device, meta["y_min"], meta["y_scale"])
+    pred = pred[:, :, meta["target_idx"], :]
+    Y_test_scaled = (Y_test[:, :, meta["target_idx"], :].cpu().numpy() * meta["y_scale"]) + meta["y_min"]
 
     metrics = {"overall": compute_all(Y_test_scaled, pred),
                **{f"step_{h + 1}": compute_all(Y_test_scaled[:, h, :], pred[:, h, :]) for h in range(H)},
-               ** {f"target_feature_{t + 1}": compute_all(Y_test_scaled[:, :, t], pred[:, :, t]) for t in range(Y_test.shape[2])}}
+               ** {f"target_feature_{t + 1}": compute_all(Y_test_scaled[:, :, t], pred[:, :, t]) for t in range(Y_test_scaled.shape[2])}}
     print("TEST:", json.dumps(metrics["overall"], indent=2))
 
     df = pd.DataFrame()
@@ -245,7 +239,7 @@ def main():
 
     plot_loss_curves(hist_df, fig_dir / f"{tag}_loss.png", best_epoch=best_epoch,
                      title=f"{args.model} - {station}: training vs validation loss")
-    past_scaled = np.asarray(X_test[:, :, meta["target_idx"]].cpu().numpy() * meta["y_scale"] + meta["y_min"])
+    # past_scaled = np.asarray(X_test.cpu().numpy() * meta["y_scale"] + meta["y_min"])
     # plot_prediction_windows(past_scaled, Y_test_scaled, pred, fig_dir / f"{tag}_windows.png", past_times = past_times, future_times = future_times,
     #                         title=f"{args.model} - {station}: previous, real and predicted AQI")
     plot_test_series(Y_test_scaled, pred, fig_dir / f"{tag}_test_series.png", times=future_times[:, 0],
