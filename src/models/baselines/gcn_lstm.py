@@ -36,13 +36,12 @@ class GCNLSTM(nn.Module):
         assert adj is not None, "GCN-LSTM needs an adjacency matrix"
         self.horizon = horizon
         self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(adj, dtype=torch.float32)))
-        dims = [in_dim] + [in_dim] * gcn_layers
+        dims = [in_dim] + [hidden] * gcn_layers
+        # dims = [in_dim] + [in_dim] * gcn_layers
         lstm_in_dim = dims[-1]
         self.gcn = nn.ModuleList(GraphConv(dims[i], dims[i + 1]) for i in range(gcn_layers))
         self.drop = nn.Dropout(dropout)
         self.lstm = LSTMModel(lstm_in_dim, self.horizon, hidden, lstm_layers, dropout)
-        self.norm = nn.LayerNorm(hidden)
-        self.head = PredictionHead(hidden, self.horizon, dropout)
 
     def forward(self, x):
         B, T, N, _ = x.shape

@@ -11,6 +11,7 @@ import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader, TensorDataset
 
+from src.models.baselines.gat_lstm import GATLSTM
 from src.models.baselines.gcn_lstm import GCNLSTM
 from src.evaluation.metrics import compute_all
 from src.models.baselines.lstm import LSTMModel
@@ -22,6 +23,7 @@ from src.visualization.model_results_test import plot_loss_curves, plot_test_ser
 MODELS = {
     "lstm": (LSTMModel, "baselines"),
     "gcn_lstm": (GCNLSTM, "baselines"),
+    "gat_lstm": (GATLSTM, "baselines"),
     # "glstm_block": (GLSTMBlockModel, "proposed"),
 }
 
@@ -157,8 +159,7 @@ def main():
 
     cls, group = MODELS[args.model]
 
-    model = cls(in_dim=meta["in_dim"], horizon=H, hidden=config["model"]["hidden"],
-                dropout=dropout).to(device)
+    model = cls(in_dim=meta["in_dim"], horizon=H, hidden=config["model"]["hidden"], dropout=dropout).to(device)
 
     print(f"{args.model} | {station} | T={T} H={H} | gcn_layers={gcn_layers} | lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
 
