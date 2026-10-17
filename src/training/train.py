@@ -135,6 +135,7 @@ def main():
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--gcn_layers", type=int, default=None)
+    parser.add_argument("--gat_layers", type=int, default=None)
     parser.add_argument("--lstm_layers", type=int, default=None)
     args = parser.parse_args()
 
@@ -145,7 +146,8 @@ def main():
     H = args.horizon or config["horizon"]
     tc = config["train"]
     lstm_layers = args.lstm_layers or tc["lstm_layers"]
-    gcn_layers = args.gcn_layers or tc["gcn_layers"] if args.model != "lstm" else 0
+    gcn_layers = args.gcn_layers or tc["gcn_layers"] if args.model == "gcn_lstm" else 0
+    gat_layers = args.gcn_layers or tc["gat_layers"] if args.model == "gat_lstm" else 0
 
     epochs, lr = args.epochs or tc["epochs"], args.lr or tc["lr"]
     seed = args.seed if args.seed is not None else config["seed"]
@@ -159,9 +161,28 @@ def main():
 
     cls, group = MODELS[args.model]
 
-    model = cls(in_dim=meta["in_dim"], horizon=H, hidden=config["model"]["hidden"], dropout=dropout).to(device)
+    if args.model == "gcn_lstm":
+        model = cls(in_dim=meta["in_dim"], gcn_layers=gcn_layers, lstm_layers=lstm_layers, horizon=H,
+                    hidden=config["model"]["hidden"], dropout=dropout).to(device)
+    elif args.model == "gat_lstm":
+        model = cls(in_dim=meta["in_dim"], gat_layers=gat_layers, lstm_layers=lstm_layers, horizon=H,
+                    hidden=config["model"]["hidden"], dropout=dropout).to(device)
+    else:
+        model = cls(in_dim=meta["in_dim"], lstm_layers=lstm_layers, horizon=H,
+                    hidden=config["model"]["hidden"], dropout=dropout).to(device)
 
-    print(f"{args.model} | {station} | T={T} H={H} | gcn_layers={gcn_layers} | lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
+    if args.model == "gcn_lstm":
+        print(
+            f"{args.model} | {station} | T={T} H={H} | gcn_layers={gcn_layers} | "
+            f"lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
+    elif args.model == "gat_lstm":
+        print(
+            f"{args.model} | {station} | T={T} H={H} | gat_layers={gat_layers} | "
+            f"lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
+    else:
+        print(
+            f"{args.model} | {station} | T={T} H={H} | "
+            f"lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
 
     mk = lambda k: DataLoader(TensorDataset(*data[k][:3]), batch_size=tc["batch_size"],
                                              shuffle=False, num_workers=tc["num_workers"])
@@ -169,7 +190,13 @@ def main():
     train_dl, val_dl = mk("train"), mk("val")
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=tc["weight_decay"])
 
-    tag = f"{args.model}_{station}_T{T}_H{H}_gcn_l{gcn_layers}_lstm_l{lstm_layers}_s{seed}"
+    if args.model == "gcn_lstm":
+        tag = f"{args.model}_{station}_T{T}_H{H}_gcn_l{gcn_layers}_lstm_l{lstm_layers}_s{seed}"
+    elif args.model == "gat_lstm":
+        tag = f"{args.model}_{station}_T{T}_H{H}_gat_l{gat_layers}_lstm_l{lstm_layers}_s{seed}"
+    else:
+        tag = f"{args.model}_{station}_T{T}_H{H}_lstm_l{lstm_layers}_s{seed}"
+
     checkpoint_dir = MODELS_SAVED_DIR / "checkpoints"
     best_model_path = checkpoint_dir / group / f"{tag}.pt"
     fig_dir = RESULTS_DIR / "figures"
@@ -235,8 +262,8 @@ def main():
 
     with open(RESULTS_DIR / "metrics" / f"{tag}.json", "w") as f:
         json.dump({"model": args.model, "station": station, "T": T, "H": H,
-                   "gcn_layers": gcn_layers, "lstm_layers": lstm_layers,
-                   "seed": seed, "lr": lr,
+                   "gat_layers": gat_layers, "gcn_layers": gcn_layers,
+                   "lstm_layers": lstm_layers, "seed": seed, "lr": lr,
                    "best_val_rmse": best_rmse, "test": metrics}, f, indent=2)
 
     hist_df = pd.DataFrame(history)
