@@ -8,7 +8,7 @@ model:
   heads: 2
   dropout: 0.3
 train:
-  epochs: 200
+  epochs: 150
   batch_size: 32
   gcn_layers: 2
   gat_layers: 2
@@ -16,5 +16,5 @@ train:
   lr: 0.001
   weight_decay: 0.0
   grad_clip: 1.0
-  patience: 20           # early stopping on validation RMSE
+  patience: 15           # early stopping on validation RMSE
   num_workers: 4

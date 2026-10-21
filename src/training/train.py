@@ -99,7 +99,6 @@ def run_epoch(model, loader, device, optimizer=None, grad_clip=None):
     criterion, total_loss, instance_count = nn.MSELoss(), 0.0, 0
     with torch.set_grad_enabled(train):
         for x, y, tc in loader:
-            B, T, N, _ = x.shape
             x, y, tc = x.to(device), y.to(device), tc.to(device) # x-> [B, T, N, F], y-> [B, T, N, 2], tc-> [B, T, 3]
             # batch_pred = model(x, tc)
             batch_pred = model(x)
