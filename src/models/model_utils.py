@@ -33,7 +33,7 @@ def euclidean(phi_1, lemda_1, phi_2, lemda_2):
 
     return dist
 
-def dist_plot(df, type):
+def dist_plot(df, type, threshold):
     DISTANCE_MATRIX_DIR = VISUALIZATION_DIR / "distance_matrix"
     DISTANCE_MATRIX_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -41,10 +41,10 @@ def dist_plot(df, type):
 
     plt.figure(figsize=(18, 12))
     sns.heatmap(data=df, cmap='coolwarm', cbar_kws={'label': f'Distance in Kilometers (Km)' if type != "adj" else None}, annot=True)
-    if type != "adj":
+    if type == "Adjacency":
         plt.title(f"Heatmap of the {type} between the AQI stations", fontsize=20, pad=4, fontweight="bold")
     else:
-        plt.title(f"Heatmap of the {type} Distances between the AQI stations", fontsize=16, pad=4, fontweight="bold")
+        plt.title(f"Heatmap of the {type} Distances between the AQI stations (threshold: {threshold} km)", fontsize=16, pad=4, fontweight="bold")
     plt.xticks(fontsize=12, rotation=90, fontweight="bold")
     plt.yticks(fontsize=12, rotation=0, fontweight="bold")
     plt.ylabel("AQI station", fontsize=16, fontweight="bold")
@@ -89,17 +89,18 @@ def build_adjacency(stations_coor_df):
         columns=stations
     ).round(2)
 
-    dist_plot(haversine_distance_df, "Haversine")
-    dist_plot(euclidean_distance_df, "Euclidean")
-
     off_diag = haversine_distance_matrix[~np.eye(n, dtype=bool)]
-    threshold = off_diag.mean() if n > 1 else 0.0
+    threshold = off_diag.mean().round(2) if n > 1 else 0.0
+
+    dist_plot(haversine_distance_df, "Haversine", threshold)
+    dist_plot(euclidean_distance_df, "Euclidean", threshold)
+
     adj = (haversine_distance_matrix < threshold).astype(np.float32)
     np.fill_diagonal(adj, 1.0)
 
     np.save(EXTERNAL_DIR / "adjacency_matrix.npy", adj)
     adjacency_df = pd.DataFrame(adj, index=stations, columns=stations).round(2)
-    dist_plot(adjacency_df, "Adjacency")
+    dist_plot(adjacency_df, "Adjacency", threshold)
 
     return adjacency_df
 
