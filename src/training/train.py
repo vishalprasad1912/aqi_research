@@ -23,8 +23,7 @@ from src.visualization.model_results_test import plot_loss_curves, plot_test_ser
 MODELS = {
     "lstm": (LSTMModel, "baselines"),
     "gcn_lstm": (GCNLSTM, "baselines"),
-    "gat_lstm": (GATLSTM, "baselines"),
-    # "glstm_block": (GLSTMBlockModel, "proposed"),
+    "gat_lstm": (GATLSTM, "baselines")
 }
 
 def load_station_df(station):
