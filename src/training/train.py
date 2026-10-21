@@ -53,11 +53,12 @@ def make_windows(all_values, T, H, target_idx, tcodes, model_type, features_idx=
     instances = len(all_values) - T - H + 1
 
     if model_type == "lstm":
-        X = np.stack([all_values[i:i + T, target_idx] for i in range(instances)]) # (instances, T, F)
-        Y = np.stack([all_values[i + T:i + T + H, target_idx, features_idx] for i in range(instances)])  # (instances, H, 2)
+        X = np.stack([all_values[i:i + T, None, target_idx] for i in range(instances)]) # (instances, T, F)
+        Y = np.stack([all_values[i + T:i + T + H, None, target_idx, features_idx] for i in range(instances)])  # (instances, H, 2)
     else:
         X = np.stack([all_values[i:i + T] for i in range(instances)]) # (instances, T, N, F)
         Y = np.stack([all_values[i + T:i + T + H, :, features_idx] for i in range(instances)])  # (instances, H, 2)
+    # print(X.shape, Y.shape)
 
     TC = np.stack([tcodes[i: i + T] for i in range(instances)])  # (instances, T, 3)
 
@@ -97,9 +98,15 @@ def run_epoch(model, loader, device, optimizer=None, grad_clip=None):
     train = optimizer is not None
     model.train(train)
     criterion, total_loss, instance_count = nn.MSELoss(), 0.0, 0
+
     with torch.set_grad_enabled(train):
         for x, y, tc in loader:
             x, y, tc = x.to(device), y.to(device), tc.to(device) # x-> [B, T, N, F], y-> [B, T, N, 2], tc-> [B, T, 3]
+
+            if isinstance(model, LSTMModel):
+                x = x.squeeze(2)
+                y = y.squeeze(2)
+
             # batch_pred = model(x, tc)
             batch_pred = model(x)
             batch_loss = criterion(y, batch_pred)
@@ -119,6 +126,9 @@ def predict(model, X, device, y_min=0, y_scale=0, bs=256):
     out = []
     for i in range(0, len(X), bs):
         # out.append(model(X[i:i + bs].to(device), TC[i:i + bs].to(device)).cpu().numpy())
+
+        if isinstance(model, LSTMModel):
+            X = X.squeeze(2)
         out.append(model(X[i:i + bs].to(device)).cpu().numpy())
     return np.concatenate(out) * y_scale + y_min
 
@@ -233,8 +243,13 @@ def main():
     # test
     model.load_state_dict(torch.load(best_model_path, map_location=device))
     X_test, Y_test, TC_test = data["test"]
+
     pred = predict(model, X_test, device, meta["y_min"], meta["y_scale"])
-    pred = pred[:, :, meta["target_idx"], :]
+    if args.model == "lstm":
+        pred = pred
+    else:
+        pred = pred[:, :, meta["target_idx"], :]
+
     Y_test_scaled = (Y_test[:, :, meta["target_idx"], :].cpu().numpy() * meta["y_scale"]) + meta["y_min"]
 
     metrics = {"overall": compute_all(Y_test_scaled, pred),
@@ -274,9 +289,7 @@ def main():
 
     plot_loss_curves(hist_df, fig_dir / f"{tag}_loss.png", best_epoch=best_epoch,
                      title=f"{args.model} - {station}: training vs validation loss")
-    # past_scaled = np.asarray(X_test.cpu().numpy() * meta["y_scale"] + meta["y_min"])
-    # plot_prediction_windows(past_scaled, Y_test_scaled, pred, fig_dir / f"{tag}_windows.png", past_times = past_times, future_times = future_times,
-    #                         title=f"{args.model} - {station}: previous, real and predicted AQI")
+
     plot_test_series(Y_test_scaled, pred, fig_dir / f"{tag}_test_series.png", times=future_times[:, 0],
                      title=f"{args.model} - {station}: real vs predicted AQI (test set)")
 
@@ -285,13 +298,15 @@ def main():
     with open(log, "a", newline="") as f:
         w = csv.writer(f)
         if new:
-            w.writerow(["time", "model", "city", "T", "H", "seed", "lr", "epochs_run", "params",
-                        "val_RMSE", "val_MAE", "val_R2", "test_RMSE", "test_MAE", "test_IA", "test_R2", "minutes"])
+            w.writerow(["time", "model", "station", "T", "H", "seed", "lr", "epochs_run", "params", "dropout",
+                        "gat_layers", "gcn_layers", "lstm_layers",
+                        "val_RMSE", "val_MAE", "val_R2", "test_RMSE", "test_MAE", "test_R2", "minutes"])
         o = metrics["overall"]
         w.writerow([datetime.now().isoformat(timespec="seconds"), args.model, station, T, H, seed, lr,
-                    len(history), count_parameters(model), f"{report_val_rmse:.4f}", f"{report_val_mae:.4f}",
+                    len(history), count_parameters(model), dropout, gat_layers, gcn_layers, lstm_layers,
+                    f"{report_val_rmse:.4f}", f"{report_val_mae:.4f}",
                     f"{report_val_r2:.4f}", f"{o['RMSE']:.4f}",
-                    f"{o['MAE']:.4f}", f"{o['IA']:.4f}", f"{o['R2']:.4f}", f"{(time.time() - t0) / 60:.2f}"])
+                    f"{o['MAE']:.4f}", f"{o['R2']:.4f}", f"{(time.time() - t0) / 60:.2f}"])
 
 
 if __name__ == "__main__":
