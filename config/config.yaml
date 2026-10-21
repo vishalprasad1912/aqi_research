@@ -17,4 +17,4 @@ train:
   weight_decay: 0.0
   grad_clip: 1.0
   patience: 15     # early stopping on validation RMSE
-  num_workers: 12
+  num_workers: 4
