@@ -10,16 +10,18 @@ class LSTMModel(nn.Module):
         prev_dim = in_dim
         for layer in range(lstm_layers):
             self.lstms.append(
-                nn.LSTM(prev_dim, hidden * (lstm_layers - layer), batch_first=True,
-                    dropout=dropout if layer > 1 else 0
-                )
+                nn.LSTM(prev_dim, hidden * (lstm_layers - layer), batch_first=True)
             )
             prev_dim = hidden * (lstm_layers - layer)
 
+        self.drop = nn.Dropout(dropout)
         self.norm = nn.LayerNorm(hidden)
         self.head = PredictionHead(hidden, horizon, dropout)
 
     def forward(self, x): # (B, T, F)
-        for lstm in self.lstms:
+        for i, lstm in enumerate(self.lstms):
             x, _ = lstm(x) # out is (B, T, H)
+
+            if i < len(self.lstms) -1 :
+                x = self.drop(x)
         return self.head(self.norm(x[:, -1])) # (B, H)

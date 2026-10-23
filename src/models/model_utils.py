@@ -122,7 +122,6 @@ class PredictionHead(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(hidden, mid),
             nn.ReLU(),
-            nn.Dropout(dropout),
             # nn.Linear(mid, horizon)
             nn.Linear(mid, 2 * self.horizon)
         )

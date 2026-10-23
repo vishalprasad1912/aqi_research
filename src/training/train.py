@@ -145,6 +145,7 @@ def main():
     parser.add_argument("--gcn_layers", type=int, default=None)
     parser.add_argument("--gat_layers", type=int, default=None)
     parser.add_argument("--lstm_layers", type=int, default=None)
+    parser.add_argument("--dropout", type=float, default=None)
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -155,11 +156,11 @@ def main():
     tc = config["train"]
     lstm_layers = args.lstm_layers or tc["lstm_layers"]
     gcn_layers = args.gcn_layers or tc["gcn_layers"] if args.model == "gcn_lstm" else 0
-    gat_layers = args.gcn_layers or tc["gat_layers"] if args.model == "gat_lstm" else 0
+    gat_layers = args.gat_layers or tc["gat_layers"] if args.model == "gat_lstm" else 0
 
     epochs, lr = args.epochs or tc["epochs"], args.lr or tc["lr"]
     seed = args.seed if args.seed is not None else config["seed"]
-    dropout = config["model"]["dropout"]
+    dropout = args.dropout if args.dropout != None else config["model"]["dropout"]
 
     set_seed(seed)
 
@@ -247,10 +248,10 @@ def main():
     pred = predict(model, X_test, device, meta["y_min"], meta["y_scale"])
     if args.model == "lstm":
         pred = pred
+        Y_test_scaled = (Y_test.squeeze(2).cpu().numpy() * meta["y_scale"]) + meta["y_min"]
     else:
         pred = pred[:, :, meta["target_idx"], :]
-
-    Y_test_scaled = (Y_test[:, :, meta["target_idx"], :].cpu().numpy() * meta["y_scale"]) + meta["y_min"]
+        Y_test_scaled = (Y_test[:, :, meta["target_idx"], :].cpu().numpy() * meta["y_scale"]) + meta["y_min"]
 
     metrics = {"overall": compute_all(Y_test_scaled, pred),
                **{f"step_{h + 1}": compute_all(Y_test_scaled[:, h, :], pred[:, h, :]) for h in range(H)},

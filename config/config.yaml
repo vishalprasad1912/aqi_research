@@ -1,5 +1,5 @@
 seed: 42 # 0, 10, 42, 75, 123
-station: "ashok_vihar"           # any one from 17 stations
+station: "rohini"           # any one from 17 stations
 input_steps: 4           # T  (4 h history)
 horizon: 1               # H  (predicts next hour)
 split: {train: 0.70, val: 0.15, test: 0.15}   # chronological
@@ -8,7 +8,7 @@ model:
   heads: 2
   dropout: 0.3
 train:
-  epochs: 150
+  epochs: 100
   batch_size: 32
   gcn_layers: 2
   gat_layers: 2
