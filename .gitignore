@@ -4,5 +4,10 @@ data/raw
 notebooks/
 src/training/train_copy.py
 github_commands.md
+commands.bat
 *.pyc
 __pycache__/
+
+# will remove later
+src/visualization/after_cleaning
+src/visualization/before_cleaning

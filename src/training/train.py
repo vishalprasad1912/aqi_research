@@ -113,6 +113,8 @@ def run_epoch(model, loader, device, optimizer=None, grad_clip=None):
             if train:
                 optimizer.zero_grad()
                 batch_loss.backward()
+                # total_norm = torch.norm(torch.stack([p.grad.norm() for p in model.parameters() if p.grad is not None]))
+                # print(total_norm.item())
                 if grad_clip:
                     nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                 optimizer.step()
