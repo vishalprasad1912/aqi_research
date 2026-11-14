@@ -1,10 +1,10 @@
 seed: 42 # 0, 10, 42, 75, 123
 station: "rohini"           # any one from 17 stations
-input_steps: 240           # T  (4 h history)
-horizon: 24               # H  (predicts next hour)
+input_steps: 24           # T  (4 h history)
+horizon: 1               # H  (predicts next hour)
 split: {train: 0.70, val: 0.15, test: 0.15}   # chronological
 model:
-  hidden: 128
+  hidden: 32
   heads: 2
   dropout: 0.1
 train:

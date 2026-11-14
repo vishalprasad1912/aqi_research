@@ -4,6 +4,14 @@ import json
 import time
 from datetime import datetime
 
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"`torch.jit.script` is deprecated.*",
+    category=FutureWarning
+)
+
 import numpy as np
 import pandas as pd
 import torch
