@@ -36,8 +36,6 @@ class GATLSTM(nn.Module):
         assert adj is not None, "GAT-LSTM needs an adjacency matrix"
         self.register_buffer("adj", torch.as_tensor(adj, dtype=torch.float32))
         dims = [in_dim] + [hidden] * gat_layers
-        # dims = [in_dim] + [in_dim] * gat_layers
-
         self.gat = nn.ModuleList(GATLayer(dims[i], dims[i + 1], heads, dropout)
                                  for i in range(gat_layers))
         self.drop = nn.Dropout(dropout)
