@@ -1,8 +1,6 @@
 .idea/
 data/raw
 .aqi_research.py3.12
-notebooks/
-src/training/train_copy.py
 github_commands.md
 commands.bat
 *.pyc
