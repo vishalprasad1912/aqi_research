@@ -58,17 +58,16 @@ def time_codes(ts):
 
 def make_windows(all_values, T, H, target_idx, tcodes, model_type, features_idx=[0, 1]):
     # input rows [i, i+T), target rows [i+T, i+T+H)
-    instances = len(all_values) - T - H + 1
+    # Non-overlapping (rolling) forecasting
+    instances = ((len(all_values) - T - H) // H) + 1
 
     if model_type == "lstm":
-        X = np.stack([all_values[i:i + T, None, target_idx] for i in range(instances)]) # (instances, T, F)
-        Y = np.stack([all_values[i + T:i + T + H, None, target_idx, features_idx] for i in range(instances)])  # (instances, H, 2)
+        X = np.stack([all_values[i*H:i*H + T, None, target_idx] for i in range(instances)]) # (instances, T, F)
+        Y = np.stack([all_values[i*H + T:i*H + T + H, None, target_idx, features_idx] for i in range(instances)])  # (instances, H, 2)
     else:
-        X = np.stack([all_values[i:i + T] for i in range(instances)]) # (instances, T, N, F)
-        Y = np.stack([all_values[i + T:i + T + H, :, features_idx] for i in range(instances)])  # (instances, H, 2)
-    # print(X.shape, Y.shape)
-
-    TC = np.stack([tcodes[i: i + T] for i in range(instances)])  # (instances, T, 3)
+        X = np.stack([all_values[i*H:i*H + T] for i in range(instances)]) # (instances, T, N, F)
+        Y = np.stack([all_values[i*H + T:i*H + T + H, :, features_idx] for i in range(instances)])  # (instances, H, 2)
+    TC = np.stack([tcodes[i*H: i*H + T] for i in range(instances)])  # (instances, T, 3)
 
     return X, Y, TC
 
