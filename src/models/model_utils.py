@@ -40,9 +40,9 @@ def dist_plot(df, type, threshold):
     df.to_csv(os.path.join(EXTERNAL_DIR, f"{type}_distance_matrix.csv"), columns=df.columns, index=True)
 
     plt.figure(figsize=(18, 12))
-    sns.heatmap(data=df, cmap='coolwarm', cbar_kws={'label': f'Distance in Kilometers (Km)' if type != "adj" else None}, annot=True)
-    if type == "Adjacency":
-        plt.title(f"Heatmap of the {type} between the AQI stations", fontsize=20, pad=4, fontweight="bold")
+    sns.heatmap(data=df, cmap='coolwarm', cbar_kws={'label': f'Distance in Kilometers (Km)' if type != "Adjacency" or "Weighted Adjacency" else None}, annot=True)
+    if type == "Adjacency" or "Weighted Adjacency":
+        plt.title(f"Heatmap of the {type} between the AQI stations", fontsize=24, pad=8, fontweight="bold")
     else:
         plt.title(f"Heatmap of the {type} Distances between the AQI stations (threshold: {threshold} km)", fontsize=16, pad=4, fontweight="bold")
     plt.xticks(fontsize=12, rotation=90, fontweight="bold")
@@ -54,11 +54,13 @@ def dist_plot(df, type, threshold):
     plt.savefig(os.path.join(DISTANCE_MATRIX_DIR, f"{type}_distance_matrix.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-def build_adjacency(stations_coor_df):
-    # Average-distance-threshold binary adjacency - Two stations are connected (1) if their Euclidean distance is below
-    # the mean pairwise distance, else (0).
-    # Self-loops are always included.
-
+def build_adjacency(stations_coor_df, weighting="gaussian", sigma=None, eps=0.01):
+    """
+    weighting="binary"  : connected if haversine < mean pairwise distance
+    weighting="gaussian": a_ij = exp(-d_ij^2 / sigma^2), set to 0 if a_ij < eps
+                          (sigma defaults to the std of off-diagonal distances)
+    Self-loops are always included (diagonal = 1).
+    """
     stations = stations_coor_df["station_name"].values
     latitudes = stations_coor_df["latitude"].values
     longitudes = stations_coor_df["longitude"].values
@@ -69,40 +71,48 @@ def build_adjacency(stations_coor_df):
 
     for i in range(n):
         for j in range(n):
-            haversine_distance_matrix[i, j] = haversine(
-                latitudes[i], longitudes[i],
-                latitudes[j], longitudes[j]
-            )
-            euclidean_distance_matrix[i, j] = euclidean(
-                latitudes[i], longitudes[i],
-                latitudes[j], longitudes[j]
-            ) * 100
+            haversine_distance_matrix[i, j] = haversine(latitudes[i], longitudes[i], latitudes[j], longitudes[j])
+            euclidean_distance_matrix[i, j] = euclidean(latitudes[i], longitudes[i], latitudes[j], longitudes[j]) * 100
 
-    haversine_distance_df = pd.DataFrame(
-        haversine_distance_matrix,
-        index=stations,
-        columns=stations
-    ).round(2)
-    euclidean_distance_df = pd.DataFrame(
-        euclidean_distance_matrix,
-        index=stations,
-        columns=stations
-    ).round(2)
+    haversine_distance_df = pd.DataFrame(haversine_distance_matrix, index=stations, columns=stations).round(2)
+    euclidean_distance_df = pd.DataFrame(euclidean_distance_matrix, index=stations, columns=stations).round(2)
 
     off_diag = haversine_distance_matrix[~np.eye(n, dtype=bool)]
-    threshold = off_diag.mean().round(2) if n > 1 else 0.0
+
+    if weighting == "binary":
+        threshold = off_diag.mean().round(2) if n > 1 else 0.0
+        adj = (haversine_distance_matrix < threshold).astype(np.float32)
+
+    elif weighting == "gaussian":
+        if sigma is None:
+            sigma = off_diag.std()
+        w_adj = np.exp(-(haversine_distance_matrix ** 2) / sigma ** 2) # can be multiplied by 2 also
+        w_adj[w_adj < eps] = 0.0
+        w_adj = w_adj.astype(np.float32)
+        threshold = round(float(np.sqrt(-sigma ** 2 * np.log(eps))), 2)
+        adj = (haversine_distance_matrix < threshold).astype(np.float32)
+        print(f"sigma={sigma:.2f}, eps={eps}, cutoff distance={threshold} (same units as haversine)")
+    else:
+        raise ValueError(f"unknown weighting: {weighting}")
+
+    np.fill_diagonal(adj, 1.0)
+
+    # diagnostics worth reporting in the paper
+    # degree = (adj > 0).sum(axis=1) - 1
+    # print(f"[{weighting}] edges (excl. self-loops): {int(degree.sum())}, "
+    #       f"avg degree: {degree.mean():.1f}, isolated stations: {int((degree == 0).sum())}")
 
     dist_plot(haversine_distance_df, "Haversine", threshold)
     dist_plot(euclidean_distance_df, "Euclidean", threshold)
 
-    adj = (haversine_distance_matrix < threshold).astype(np.float32)
-    np.fill_diagonal(adj, 1.0)
-
     np.save(EXTERNAL_DIR / "adjacency_matrix.npy", adj)
-    adjacency_df = pd.DataFrame(adj, index=stations, columns=stations).round(2)
+    np.save(EXTERNAL_DIR / "weighted_adjacency_matrix.npy", w_adj)
+    adjacency_df = pd.DataFrame(adj, index=stations, columns=stations)
+    weighted_adjacency_df = pd.DataFrame(w_adj, index=stations, columns=stations).round(4)
     dist_plot(adjacency_df, "Adjacency", threshold)
+    dist_plot(weighted_adjacency_df, "Weighted_adjacency", threshold)
 
-    return adjacency_df
+    return adjacency_df, weighted_adjacency_df
 
 
 def normalize_adjacency(adj):

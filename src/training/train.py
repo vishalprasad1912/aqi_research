@@ -256,21 +256,21 @@ def main():
                }
     print("TEST:", json.dumps(metrics["overall"], indent=2))
 
-    df = pd.DataFrame()
-
-    for h in range(Y_test_scaled.shape[1]):
-        df[f"PM2.5_Actual_H{h + 1}"] = Y_test_scaled[:, h, 0]
-        df[f"PM2.5_Pred_H{h + 1}"] = pred[:, h, 0]
-
-        df[f"PM10_Actual_H{h + 1}"] = Y_test_scaled[:, h, 1]
-        df[f"PM10_Pred_H{h + 1}"] = pred[:, h, 1]
-
-    start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
-
-    df["Time"] = pd.to_datetime(meta["timestamps"][start + T + np.arange(H)])
-    df["Time"] = pd.to_datetime(df["Time"].apply(lambda x: x[0]))
-    df.set_index("Time", inplace=True)
-    df.to_csv(RESULTS_DIR / "predictions" / f"{tag}", index=True)
+    # df = pd.DataFrame()
+    #
+    # for h in range(Y_test_scaled.shape[1]):
+    #     df[f"PM2.5_Actual_H{h + 1}"] = Y_test_scaled[:, h, 0]
+    #     df[f"PM2.5_Pred_H{h + 1}"] = pred[:, h, 0]
+    #
+    #     df[f"PM10_Actual_H{h + 1}"] = Y_test_scaled[:, h, 1]
+    #     df[f"PM10_Pred_H{h + 1}"] = pred[:, h, 1]
+    #
+    # start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
+    #
+    # df["Time"] = pd.to_datetime(meta["timestamps"][start + T + np.arange(H)])
+    # df["Time"] = pd.to_datetime(df["Time"].apply(lambda x: x[0]))
+    # df.set_index("Time", inplace=True)
+    # df.to_csv(RESULTS_DIR / "predictions" / f"{tag}", index=True)
 
     with open(RESULTS_DIR / "metrics" / f"{tag}.json", "w") as f:
         json.dump({"model": args.model, "station": station, "T": T, "H": H,

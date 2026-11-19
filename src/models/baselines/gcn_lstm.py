@@ -7,15 +7,19 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.models.model_utils import PredictionHead, normalize_adjacency
+from src.models.model_utils import normalize_adjacency
 from src.models.baselines.lstm import LSTMModel
 from src.utils.paths import EXTERNAL_DIR
-
 
 def get_adjacency():
     adj_matrix_path = os.path.join(EXTERNAL_DIR, "adjacency_matrix.npy")
     adj = np.load(adj_matrix_path) if Path(str(adj_matrix_path)).exists() else None
     return adj
+
+def get_weighted_adjacency():
+    w_adj_matrix_path = os.path.join(EXTERNAL_DIR, "weighted_adjacency_matrix.npy")
+    w_adj = np.load(w_adj_matrix_path) if Path(str(w_adj_matrix_path)).exists() else None
+    return w_adj
 
 class GraphConv(nn.Module):
     def __init__(self, in_dim, out_dim): # out (B, H, 2)
@@ -31,15 +35,10 @@ class GCNLSTM(nn.Module):
                  hidden=64, gcn_layers=2, lstm_layers=1, dropout=0.5, **kwargs):
         super().__init__()
         adj = get_adjacency()
+        w_adj = get_weighted_adjacency()
         assert adj is not None, "GCN-LSTM needs an adjacency matrix"
         self.horizon = horizon
-        src, dst = np.nonzero(adj)
-        edge_index = torch.tensor(
-            np.stack([src, dst]),
-            dtype=torch.long
-        )
-        self.register_buffer("edge_index", edge_index)
-        self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(adj, dtype=torch.float32)))
+        self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(w_adj, dtype=torch.float32)))
         dims = [in_dim] + [hidden] * gcn_layers
         lstm_in_dim = dims[-1]
         self.gcn = nn.ModuleList(GraphConv(dims[i], dims[i + 1]) for i in range(gcn_layers))

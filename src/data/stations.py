@@ -39,9 +39,10 @@ def main():
     stations_coor_df = pd.read_csv(coordinates_file_path)
     stations_coor_df = stations_coor_df[stations_coor_df['station_name'].isin(selected_stations)]
 
-    adj = build_adjacency(stations_coor_df.sort_values(by="station_name").reset_index(drop=True))
+    adj, w_adj = build_adjacency(stations_coor_df.sort_values(by="station_name").reset_index(drop=True))
 
     print(f"\nAdjacency matrix created for above selected stations at location: data / external / Adjacency_distance_matrix.csv")
+    print(f"\nWeighted Adjacency matrix created for above selected stations at location: data / external / Weighted_adjacency_distance_matrix.csv")
     print("#" * 80)
 
 if __name__ == "__main__":
