@@ -1,0 +1,20 @@
+{
+  "model": "gat_lstm",
+  "station": "pusa",
+  "T": 24,
+  "H": 8,
+  "gat_layers": 1,
+  "gcn_layers": 0,
+  "lstm_layers": 2,
+  "seed": 42,
+  "lr": 0.001,
+  "best_val_rmse": 70.61624532683871,
+  "test": {
+    "overall": {
+      "RMSE": 67.8880001109962,
+      "MAE": 44.73669852283749,
+      "IA": 0.9165872296901454,
+      "R2": 0.7066096723504391
+    }
+  }
+}

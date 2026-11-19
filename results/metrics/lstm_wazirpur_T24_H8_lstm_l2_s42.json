@@ -1,0 +1,20 @@
+{
+  "model": "lstm",
+  "station": "wazirpur",
+  "T": 24,
+  "H": 8,
+  "gat_layers": 0,
+  "gcn_layers": 0,
+  "lstm_layers": 2,
+  "seed": 42,
+  "lr": 0.001,
+  "best_val_rmse": 75.50924339362798,
+  "test": {
+    "overall": {
+      "RMSE": 75.91891521569993,
+      "MAE": 47.31234703640342,
+      "IA": 0.9452160092987318,
+      "R2": 0.8113352583906867
+    }
+  }
+}
