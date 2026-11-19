@@ -3,14 +3,8 @@ import csv
 import json
 import time
 from datetime import datetime
-
 import warnings
-
-warnings.filterwarnings(
-    "ignore",
-    message=r"`torch.jit.script` is deprecated.*",
-    category=FutureWarning
-)
+warnings.filterwarnings("ignore")
 
 import numpy as np
 import pandas as pd
@@ -38,14 +32,8 @@ def load_station_df(station):
     data = np.load(PROCESSED_DIR / "stations_data.npz", allow_pickle=True)
     station_names = data["station_names"]
 
-    station_to_idx = {
-        name: idx
-        for idx, name in enumerate(station_names)
-    }
-    all_values = np.stack(
-        [data[f"station_{i}"][:, 1:].astype(np.float32) for i in station_names],
-        axis=0
-    )
+    station_to_idx = {name: idx for idx, name in enumerate(station_names)}
+    all_values = np.stack([data[f"station_{i}"][:, 1:].astype(np.float32) for i in station_names], axis=0)
     all_values = np.transpose(all_values, (1, 0, 2))
     values = data[f"station_{station}"]
     ts = pd.to_datetime(values[:, 0])
@@ -57,7 +45,6 @@ def time_codes(ts):
     return np.stack([ts.hour, ts.dayofweek, ts.month - 1], axis=1).astype(np.int32)
 
 def make_windows(all_values, T, H, target_idx, tcodes, model_type, features_idx=[0, 1]):
-    # input rows [i, i+T), target rows [i+T, i+T+H)
     # Non-overlapping (rolling) forecasting
     instances = ((len(all_values) - T - H) // H) + 1
 
@@ -68,7 +55,6 @@ def make_windows(all_values, T, H, target_idx, tcodes, model_type, features_idx=
         X = np.stack([all_values[i*H:i*H + T] for i in range(instances)]) # (instances, T, N, F)
         Y = np.stack([all_values[i*H + T:i*H + T + H, :, features_idx] for i in range(instances)])  # (instances, H, 2)
     TC = np.stack([tcodes[i*H: i*H + T] for i in range(instances)])  # (instances, T, 3)
-
     return X, Y, TC
 
 def prepare(config, station, T, H, model_type):
@@ -77,7 +63,8 @@ def prepare(config, station, T, H, model_type):
     tr_instances = int(instances * config["split"]["train"])
     vl_instances = int(instances * config["split"]["val"])
 
-    train_rows = all_values[: tr_instances + T + H - 1]
+    train_end = (tr_instances - 1) * H + T + H
+    train_rows = all_values[: train_end]
     vmin = np.min(train_rows, axis=0)
     vmax = np.max(train_rows, axis=0)
     scale = np.where(vmax - vmin == 0, 1.0, vmax - vmin)
@@ -224,6 +211,7 @@ def main():
 
     best_rmse, bad, history, best_epoch, t0 = float("inf"), 0, [], 0, time.time()
     report_val_rmse, report_val_mae, report_val_r2 = 0.0, 0.0, 0.0
+
     for epoch in range(1, epochs + 1):
         train_loss = run_epoch(model, train_dl, device, optimizer, tc["grad_clip"])
         X_val, Y_val, TC_val = data["val"]
@@ -263,8 +251,9 @@ def main():
         Y_test_scaled = (Y_test[:, :, meta["target_idx"], :].cpu().numpy() * meta["y_scale"]) + meta["y_min"]
 
     metrics = {"overall": compute_all(Y_test_scaled, pred),
-               **{f"step_{h + 1}": compute_all(Y_test_scaled[:, h, :], pred[:, h, :]) for h in range(H)},
-               ** {f"target_feature_{t + 1}": compute_all(Y_test_scaled[:, :, t], pred[:, :, t]) for t in range(Y_test_scaled.shape[2])}}
+               # **{f"step_{h + 1}": compute_all(Y_test_scaled[:, h, :], pred[:, h, :]) for h in range(H)},
+               # ** {f"target_feature_{t + 1}": compute_all(Y_test_scaled[:, :, t], pred[:, :, t]) for t in range(Y_test_scaled.shape[2])}
+               }
     print("TEST:", json.dumps(metrics["overall"], indent=2))
 
     df = pd.DataFrame()
@@ -276,9 +265,9 @@ def main():
         df[f"PM10_Actual_H{h + 1}"] = Y_test_scaled[:, h, 1]
         df[f"PM10_Pred_H{h + 1}"] = pred[:, h, 1]
 
-    start = meta["test_start"] + np.arange(len(X_test))[:, None]
+    start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
 
-    df["Time"] = pd.to_datetime(meta["timestamps"][start + config['input_steps'] + np.arange(config['horizon'])])
+    df["Time"] = pd.to_datetime(meta["timestamps"][start + T + np.arange(H)])
     df["Time"] = pd.to_datetime(df["Time"].apply(lambda x: x[0]))
     df.set_index("Time", inplace=True)
     df.to_csv(RESULTS_DIR / "predictions" / f"{tag}", index=True)
@@ -308,12 +297,12 @@ def main():
     with open(log, "a", newline="") as f:
         w = csv.writer(f)
         if new:
-            w.writerow(["time", "model", "station", "T", "H", "seed", "lr", "epochs_run", "params", "dropout",
+            w.writerow(["time", "model", "station", "T", "H", "seed", "lr", "epochs_run", "dropout",
                         "gat_layers", "gcn_layers", "lstm_layers",
                         "val_RMSE", "val_MAE", "val_R2", "test_RMSE", "test_MAE", "test_R2", "minutes"])
         o = metrics["overall"]
         w.writerow([datetime.now().isoformat(timespec="seconds"), args.model, station, T, H, seed, lr,
-                    len(history), count_parameters(model), dropout, gat_layers, gcn_layers, lstm_layers,
+                    len(history), dropout, gat_layers, gcn_layers, lstm_layers,
                     f"{report_val_rmse:.4f}", f"{report_val_mae:.4f}",
                     f"{report_val_r2:.4f}", f"{o['RMSE']:.4f}",
                     f"{o['MAE']:.4f}", f"{o['R2']:.4f}", f"{(time.time() - t0) / 60:.2f}"])
