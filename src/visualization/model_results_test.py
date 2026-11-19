@@ -57,7 +57,7 @@ def plot_prediction_windows(past, observed, predicted, path, n_samples=6, seed=0
 
 
 def plot_test_series(observed, predicted, path, times=None, horizon_step=0,
-                     title="Test set: real vs predicted", plot_steps=20):
+                     title="Test set: real vs predicted", plot_steps=10):
     real_colors = ["#1f77b4", "#2ca02c"]
     pred_colors = ["#6baed6", "#74c476"]
 

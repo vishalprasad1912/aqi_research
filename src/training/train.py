@@ -73,7 +73,7 @@ def make_windows(all_values, T, H, target_idx, tcodes, model_type, features_idx=
 
 def prepare(config, station, T, H, model_type):
     ts, target_idx, all_values = load_station_df(station)
-    instances = all_values.shape[0] - T - H + 1
+    instances = ((all_values.shape[0] - T - H) // H) + 1
     tr_instances = int(instances * config["split"]["train"])
     vl_instances = int(instances * config["split"]["val"])
 
