@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src.models.baselines.gcn_lstm import get_weighted_adjacency
 from src.models.baselines.lstm import LSTMModel
 from src.models.baselines.gcn_lstm import get_adjacency
 
@@ -21,6 +22,7 @@ class GATLayer(nn.Module):
         z = self.W(x).view(*x.shape[:-1], self.h, self.dim_h) # (B,T,N,h,dh)
         s_src = (z * self.a_src).sum(-1).transpose(-1, -2)          # (B,T,h,N)
         s_dst = (z * self.a_dst).sum(-1).transpose(-1, -2)          # (B,T,h,N)
+        # e = F.gelu(s_dst.unsqueeze(-1) + s_src.unsqueeze(-2))  # (B,T,h,N_i,N_j)
         e = F.leaky_relu(s_dst.unsqueeze(-1) + s_src.unsqueeze(-2), 0.2)   # (B,T,h,N_i,N_j)
         e = e.masked_fill(adj == 0, -1e9)                           # only connected stations
         a = self.drop(F.softmax(e, dim=-1))                         # attention weights per node
@@ -32,6 +34,7 @@ class GATLSTM(nn.Module):
                  hidden=64, heads=4, gat_layers=2, lstm_layers=1, dropout=0.5, **kwargs):
         super().__init__()
         self.horizon = horizon
+        # adj = get_weighted_adjacency()
         adj = get_adjacency()
         assert adj is not None, "GAT-LSTM needs an adjacency matrix"
         self.register_buffer("adj", torch.as_tensor(adj, dtype=torch.float32))

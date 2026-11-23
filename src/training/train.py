@@ -189,8 +189,13 @@ def main():
             f"{args.model} | {station} | T={T} H={H} | "
             f"lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
 
-    mk = lambda k: DataLoader(TensorDataset(*data[k][:3]), batch_size=tc["batch_size"],
-                                             shuffle=False, num_workers=tc["num_workers"])
+    mk = lambda k: DataLoader(TensorDataset(*data[k][:3]),
+                              batch_size=tc["batch_size"],
+                              shuffle=False,
+                              num_workers=tc["num_workers"],
+                              persistent_workers=True,
+                              prefetch_factor=2
+                              )
 
     train_dl, val_dl = mk("train"), mk("val")
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=tc["weight_decay"])
@@ -251,26 +256,26 @@ def main():
         Y_test_scaled = (Y_test[:, :, meta["target_idx"], :].cpu().numpy() * meta["y_scale"]) + meta["y_min"]
 
     metrics = {"overall": compute_all(Y_test_scaled, pred),
-               # **{f"step_{h + 1}": compute_all(Y_test_scaled[:, h, :], pred[:, h, :]) for h in range(H)},
-               # ** {f"target_feature_{t + 1}": compute_all(Y_test_scaled[:, :, t], pred[:, :, t]) for t in range(Y_test_scaled.shape[2])}
+               **{f"step_{h + 1}": compute_all(Y_test_scaled[:, h, :], pred[:, h, :]) for h in range(H)},
+               ** {f"target_feature_{t + 1}": compute_all(Y_test_scaled[:, :, t], pred[:, :, t]) for t in range(Y_test_scaled.shape[2])}
                }
     print("TEST:", json.dumps(metrics["overall"], indent=2))
 
-    # df = pd.DataFrame()
-    #
-    # for h in range(Y_test_scaled.shape[1]):
-    #     df[f"PM2.5_Actual_H{h + 1}"] = Y_test_scaled[:, h, 0]
-    #     df[f"PM2.5_Pred_H{h + 1}"] = pred[:, h, 0]
-    #
-    #     df[f"PM10_Actual_H{h + 1}"] = Y_test_scaled[:, h, 1]
-    #     df[f"PM10_Pred_H{h + 1}"] = pred[:, h, 1]
-    #
-    # start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
-    #
-    # df["Time"] = pd.to_datetime(meta["timestamps"][start + T + np.arange(H)])
-    # df["Time"] = pd.to_datetime(df["Time"].apply(lambda x: x[0]))
-    # df.set_index("Time", inplace=True)
-    # df.to_csv(RESULTS_DIR / "predictions" / f"{tag}", index=True)
+    df = pd.DataFrame()
+
+    for h in range(Y_test_scaled.shape[1]):
+        df[f"PM2.5_Actual_H{h + 1}"] = Y_test_scaled[:, h, 0]
+        df[f"PM2.5_Pred_H{h + 1}"] = pred[:, h, 0]
+
+        df[f"PM10_Actual_H{h + 1}"] = Y_test_scaled[:, h, 1]
+        df[f"PM10_Pred_H{h + 1}"] = pred[:, h, 1]
+
+    start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
+
+    df["Time"] = pd.to_datetime(meta["timestamps"][start + T + np.arange(H)])
+    df["Time"] = pd.to_datetime(df["Time"].apply(lambda x: x[0]))
+    df.set_index("Time", inplace=True)
+    df.to_csv(RESULTS_DIR / "predictions" / f"{tag}.csv", index=True)
 
     with open(RESULTS_DIR / "metrics" / f"{tag}.json", "w") as f:
         json.dump({"model": args.model, "station": station, "T": T, "H": H,
@@ -282,7 +287,8 @@ def main():
     hist_df.to_csv(RESULTS_DIR / "logs" / f"{tag}_history.csv", index=False)
 
     # plots
-    start = meta["test_start"] + np.arange(len(X_test))[:, None]
+    start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
+    # start = meta["test_start"] + np.arange(len(X_test))[:, None] * H
     # past_times = meta["timestamps"][start + np.arange(T)]
     future_times = meta["timestamps"][start + T + np.arange(H)]
 

@@ -126,14 +126,15 @@ def normalize_adjacency(adj):
 class PredictionHead(nn.Module):
     # Fully connected task layer: hidden -> 256 -> len(target_idx)
 
-    def __init__(self, hidden, horizon, dropout=0.5, mid=32): # changed mid from 256 to 32
+    def __init__(self, hidden, horizon, dropout=0.1): # changed mid from 256 to 32
         super().__init__()
         self.horizon = horizon
         self.net = nn.Sequential(
-            nn.Linear(hidden, mid),
-            nn.ReLU(),
-            # nn.Linear(mid, horizon)
-            nn.Linear(mid, 2 * self.horizon)
+            nn.Linear(hidden, hidden * 2),
+            nn.GELU(),
+            # nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden * 2, 2 * self.horizon)
         )
 
     def forward(self, x):

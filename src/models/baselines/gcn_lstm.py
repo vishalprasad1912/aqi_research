@@ -27,7 +27,8 @@ class GraphConv(nn.Module):
         self.linear = nn.Linear(in_dim, out_dim)
     def forward(self, x, a_hat):
         out = self.linear(x)
-        out = F.relu(torch.einsum("nm,...md->...nd", a_hat, out))
+        out = F.gelu(torch.einsum("nm,...md->...nd", a_hat, out))
+        # out = F.relu(torch.einsum("nm,...md->...nd", a_hat, out))
         return out
 
 class GCNLSTM(nn.Module):
@@ -38,7 +39,7 @@ class GCNLSTM(nn.Module):
         w_adj = get_weighted_adjacency()
         assert adj is not None, "GCN-LSTM needs an adjacency matrix"
         self.horizon = horizon
-        self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(w_adj, dtype=torch.float32)))
+        self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(adj, dtype=torch.float32)))
         dims = [in_dim] + [hidden] * gcn_layers
         lstm_in_dim = dims[-1]
         self.gcn = nn.ModuleList(GraphConv(dims[i], dims[i + 1]) for i in range(gcn_layers))

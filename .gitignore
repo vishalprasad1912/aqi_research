@@ -5,6 +5,7 @@ github_commands.md
 commands.bat
 *.pyc
 __pycache__/
+config/abalation work
 
 # will remove later
 src/visualization/after_cleaning
