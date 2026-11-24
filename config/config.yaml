@@ -6,7 +6,7 @@ split: {train: 0.70, val: 0.15, test: 0.15}   # chronological
 model:
   hidden: 32
   heads: 2
-  dropout: 0.1
+  dropout: 0.0
 train:
   epochs: 100
   batch_size: 64

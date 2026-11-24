@@ -39,7 +39,7 @@ class GCNLSTM(nn.Module):
         w_adj = get_weighted_adjacency()
         assert adj is not None, "GCN-LSTM needs an adjacency matrix"
         self.horizon = horizon
-        self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(adj, dtype=torch.float32)))
+        self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(w_adj, dtype=torch.float32)))
         dims = [in_dim] + [hidden] * gcn_layers
         lstm_in_dim = dims[-1]
         self.gcn = nn.ModuleList(GraphConv(dims[i], dims[i + 1]) for i in range(gcn_layers))

@@ -1,3 +1,4 @@
+from src.data.feature_engineering import feature_extraction
 from src.models.model_utils import build_adjacency
 from src.utils.paths import INTERIM_DIR, EXTERNAL_DIR, PROCESSED_DIR
 from src.data.clean_data import clean_df
@@ -23,7 +24,6 @@ def main():
             print(f"\nAlready cleaned {station_name}")
             selected_stations.append(station_name)
             continue
-
         result = clean_df(station_name, file_path)
 
         if result is not None:
@@ -32,6 +32,9 @@ def main():
             continue
 
     selected_stations = set(selected_stations)
+
+    # Feature extraction step
+
 
     print("#" * 80)
     print(f"\nSelected stations ({len(selected_stations)}):\n", selected_stations)

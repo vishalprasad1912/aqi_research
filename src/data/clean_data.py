@@ -1,3 +1,6 @@
+import pandas as pd
+
+from src.data.feature_engineering import feature_extraction
 from src.data.load_data import load_excel
 from src.utils.paths import PROCESSED_DIR, VISUALIZATION_DIR
 
@@ -57,11 +60,10 @@ def clean_df(station_name, path):
     plt.savefig(os.path.join(AFTER_CLEANING_NULL_VALUES, f"{station_name}.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    out_path = os.path.join(PROCESSED_DIR, station_name)
-    df.to_csv(out_path, columns=df.columns, index=True)
-
     print(f"\n{station_name} data cleaned successfully.")
-
+    df = feature_extraction(df, station_name)
+    out_path = os.path.join(PROCESSED_DIR, f"{station_name}.csv")
+    df.to_csv(out_path, columns=df.columns, index=True)
     return station_name
 
 if __name__ == "__main__":

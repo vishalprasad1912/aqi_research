@@ -34,8 +34,8 @@ class GATLSTM(nn.Module):
                  hidden=64, heads=4, gat_layers=2, lstm_layers=1, dropout=0.5, **kwargs):
         super().__init__()
         self.horizon = horizon
-        # adj = get_weighted_adjacency()
-        adj = get_adjacency()
+        adj = get_weighted_adjacency()
+        # adj = get_adjacency()
         assert adj is not None, "GAT-LSTM needs an adjacency matrix"
         self.register_buffer("adj", torch.as_tensor(adj, dtype=torch.float32))
         dims = [in_dim] + [hidden] * gat_layers

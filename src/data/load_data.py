@@ -19,6 +19,3 @@ def load_excel(path, date_col="Timestamp", usecols=None):
         return df[usecols]
     return df
 
-if __name__ == "__main__":
-    df = load_excel("path.xlsx")
-
