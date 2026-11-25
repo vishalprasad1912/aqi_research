@@ -54,8 +54,6 @@ def make_windows(all_values, T, H, target_idx, model_type, features_idx=[0, 1]):
 def prepare(config, station, T, H, model_type):
     ts, target_idx, all_values = load_station_df(station)
     instances = ((all_values.shape[0] - T - H) // H) + 1
-    tr_instances = int(instances * 0.70)
-    vl_instances = int(instances * 0.15)
     tr_instances = int(instances * config["split"]["train"])
     vl_instances = int(instances * config["split"]["val"])
 
@@ -187,7 +185,7 @@ def main():
     train_dl = DataLoader(
         TensorDataset(*data["train"]),
         batch_size=tc["batch_size"],
-        shuffle=True,
+        shuffle=False,
         num_workers=tc["num_workers"],
         persistent_workers=tc["num_workers"] > 0,
         prefetch_factor=2 if tc["num_workers"] > 0 else None
@@ -225,7 +223,10 @@ def main():
         train_loss = run_epoch(model, train_dl, device, optimizer, tc["grad_clip"], target_idx=meta["target_idx"])
         X_val, Y_val = data["val"]
         X_val = X_val
-        Y_val = Y_val[:, :, meta["target_idx"], :]
+        if args.model == "lstm":
+            Y_val = Y_val.squeeze(2)
+        else:
+            Y_val = Y_val[:, :, meta["target_idx"], :]
         val_loss = run_epoch(model, val_dl, device, target_idx=meta["target_idx"])
         pred = predict(model, X_val, device, meta["y_min"], meta["y_scale"])
         val_metrics = compute_all((Y_val.cpu().numpy() * meta["y_scale"]) + meta["y_min"], pred)
@@ -249,7 +250,10 @@ def main():
     model.load_state_dict(torch.load(best_model_path, map_location=device))
     X_test, Y_test = data["test"]
     X_test = X_test
-    Y_test = Y_test[:, :, meta["target_idx"], :]
+    if args.model == "lstm":
+        Y_test = Y_test.squeeze(2)
+    else:
+        Y_test = Y_test[:, :, meta["target_idx"], :]
     Y_test_scaled = (Y_test.cpu().numpy() * meta["y_scale"]) + meta["y_min"]
     pred = predict(model, X_test, device, meta["y_min"], meta["y_scale"])
     metrics = {"overall": compute_all(Y_test_scaled, pred),
