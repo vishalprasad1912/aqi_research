@@ -1,12 +1,12 @@
-python -m src.training.train --model gcn_lstm --station pusa
-python -m src.training.train --model gat_lstm --station pusa
-python -m src.training.train --model lstm --station pusa
-python -m src.training.train --model gcn_lstm --station wazirpur
-python -m src.training.train --model gat_lstm --station wazirpur
-python -m src.training.train --model lstm --station wazirpur
-python -m src.training.train --model gcn_lstm --station najafgarh
-python -m src.training.train --model gat_lstm --station najafgarh
-python -m src.training.train --model lstm --station najafgarh
+@REM python -m src.training.train --model gcn_lstm --station pusa
+@REM python -m src.training.train --model gat_lstm --station pusa
+@REM python -m src.training.train --model lstm --station pusa
+@REM python -m src.training.train --model gcn_lstm --station wazirpur
+@REM python -m src.training.train --model gat_lstm --station wazirpur
+@REM python -m src.training.train --model lstm --station wazirpur
+@REM python -m src.training.train --model gcn_lstm --station najafgarh
+@REM python -m src.training.train --model gat_lstm --station najafgarh
+@REM python -m src.training.train --model lstm --station najafgarh
 python -m src.training.train --model gcn_lstm --station narela
 python -m src.training.train --model gat_lstm --station narela
 python -m src.training.train --model lstm --station narela
