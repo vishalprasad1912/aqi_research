@@ -1,57 +1,58 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from src.models.baselines.gcn_lstm import get_weighted_adjacency
-from src.models.baselines.lstm import LSTMModel
-from src.models.baselines.gcn_lstm import get_adjacency
-
-class GATLayer(nn.Module):
-    def __init__(self, in_dim, out_dim, heads=4, dropout=0.5):
-        super().__init__()
-        assert out_dim % heads == 0
-        self.h, self.dim_h = heads, out_dim // heads
-        self.W = nn.Linear(in_dim, out_dim, bias=False)
-        self.a_src = nn.Parameter(torch.empty(heads, self.dim_h))     # score of the neighbour j
-        self.a_dst = nn.Parameter(torch.empty(heads, self.dim_h))     # score of the receiving node i
-        nn.init.xavier_uniform_(self.a_src)
-        nn.init.xavier_uniform_(self.a_dst)
-        self.drop = nn.Dropout(dropout)
-
-    def forward(self, x, adj):
-        z = self.W(x).view(*x.shape[:-1], self.h, self.dim_h) # (B,T,N,h,dh)
-        s_src = (z * self.a_src).sum(-1).transpose(-1, -2)          # (B,T,h,N)
-        s_dst = (z * self.a_dst).sum(-1).transpose(-1, -2)          # (B,T,h,N)
-        # e = F.gelu(s_dst.unsqueeze(-1) + s_src.unsqueeze(-2))  # (B,T,h,N_i,N_j)
-        e = F.leaky_relu(s_dst.unsqueeze(-1) + s_src.unsqueeze(-2), 0.2)   # (B,T,h,N_i,N_j)
-        e = e.masked_fill(adj == 0, -1e9)                           # only connected stations
-        a = self.drop(F.softmax(e, dim=-1))                         # attention weights per node
-        out = torch.einsum("...hij,...jhd->...ihd", a, z)           # weighted sum of neighbors
-        return F.elu(out.reshape(*x.shape[:-1], -1))                # (B,T,N,out)
+from torch_geometric.nn import GATConv
+from src.models.baselines.graph_utils import load_graph, batch_edges
 
 class GATLSTM(nn.Module):
-    def __init__(self, in_dim, horizon=1,
-                 hidden=64, heads=4, gat_layers=2, lstm_layers=1, dropout=0.5, **kwargs):
+    def __init__(self, in_dim, horizon=1, hidden=64, heads=4, gat_layers=2, lstm_layers=1, target_idx=None, dropout=0.5,
+                 **kwargs):
         super().__init__()
+        edge_index, edge_weight, num_nodes = load_graph(weighted=True)
+        self.num_nodes = num_nodes
         self.horizon = horizon
-        adj = get_weighted_adjacency()
-        # adj = get_adjacency()
-        assert adj is not None, "GAT-LSTM needs an adjacency matrix"
-        self.register_buffer("adj", torch.as_tensor(adj, dtype=torch.float32))
+        self.target_idx = target_idx
+        self.register_buffer("edge_index", edge_index)
+        self.register_buffer("edge_weight", edge_weight)
+        # Attention-based spatial learning
+        self.gat = nn.ModuleList()
         dims = [in_dim] + [hidden] * gat_layers
-        self.gat = nn.ModuleList(GATLayer(dims[i], dims[i + 1], heads, dropout)
-                                 for i in range(gat_layers))
-        self.drop = nn.Dropout(dropout)
-        self.lstm = LSTMModel(dims[-1], self.horizon, hidden, lstm_layers, dropout)
-
+        for i in range(gat_layers):
+            self.gat.append(GATConv(in_channels=dims[i], out_channels=hidden // heads, heads=heads, concat=True, dropout=dropout, edge_dim=1, add_self_loops=True))
+        self.dropout = nn.Dropout(dropout)
+        # Shared temporal learning
+        self.lstm = nn.LSTM(
+            input_size=hidden,
+            hidden_size=hidden,
+            num_layers=lstm_layers,
+            batch_first=True,
+            dropout=dropout if lstm_layers > 1 else 0.0
+        )
+        self.norm = nn.LayerNorm(hidden)
+        # Prediction head
+        self.head = nn.Sequential(
+            nn.Linear(hidden, hidden * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden * 2, horizon * 2)
+        )
     def forward(self, x):
-        B, T, N, _ = x.shape
-        h = x
+        B, T, N, F_in = x.shape
+        h = x.reshape(B * T * N, F_in) # [B,T,N,F] -> [B*T*N,F]
+        edge_index, edge_weight = batch_edges(self.edge_index, self.edge_weight, B * T, N)
+        # GAT spatial layers
         for layer in self.gat:
-            h = self.drop(layer(h, self.adj)) # (B,T,N,F)
-        h = h.permute(0, 2, 1, 3).reshape(B * N, T, -1) # (B*N, T, F)
-        out = self.lstm(h)
-        last = out.reshape(B, N, self.horizon, -1)
-        last = last.permute(0, 2, 1, 3)  # (B, H, N, 2)
-
-        return last
+            h = layer(h, edge_index, edge_attr=edge_weight.unsqueeze(-1))
+            h = F.elu(h)
+            h = self.dropout(h)
+        # Restore temporal and node dimensions
+        h = h.reshape(B, T, N, -1)
+        h = h.permute(0, 2, 1, 3).reshape(B * N, T, -1) # [B,T,N,H] -> [B*N,T,H]
+        # Shared LSTM
+        out, _ = self.lstm(h)
+        out = self.norm(out[:, -1, :])
+        out = self.head(out)
+        out = out.reshape(B, N, self.horizon, 2)
+        out = out.permute(0, 2, 1, 3) # [B,N,H,2] -> [B,H,N,2]
+        out = out[:, :, self.target_idx, :] # [B,H,2]
+        return out

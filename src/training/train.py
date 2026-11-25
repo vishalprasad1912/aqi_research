@@ -40,26 +40,22 @@ def load_station_df(station):
     target_idx = station_to_idx[station]
     return ts, target_idx, all_values
 
-def time_codes(ts):
-    # (T_total, 3) long: hour 0-23, weekday 0-6, month 0-11
-    return np.stack([ts.hour, ts.dayofweek, ts.month - 1], axis=1).astype(np.int32)
-
-def make_windows(all_values, T, H, target_idx, tcodes, model_type, features_idx=[0, 1]):
-    # Non-overlapping (rolling) forecasting
+def make_windows(all_values, T, H, target_idx, model_type, features_idx=[0, 1]):
+    # Non-overlapping (rolling) window
     instances = ((len(all_values) - T - H) // H) + 1
-
     if model_type == "lstm":
         X = np.stack([all_values[i*H:i*H + T, None, target_idx] for i in range(instances)]) # (instances, T, F)
         Y = np.stack([all_values[i*H + T:i*H + T + H, None, target_idx, features_idx] for i in range(instances)])  # (instances, H, 2)
     else:
         X = np.stack([all_values[i*H:i*H + T] for i in range(instances)]) # (instances, T, N, F)
         Y = np.stack([all_values[i*H + T:i*H + T + H, :, features_idx] for i in range(instances)])  # (instances, H, 2)
-    TC = np.stack([tcodes[i*H: i*H + T] for i in range(instances)])  # (instances, T, 3)
-    return X, Y, TC
+    return X, Y
 
 def prepare(config, station, T, H, model_type):
     ts, target_idx, all_values = load_station_df(station)
     instances = ((all_values.shape[0] - T - H) // H) + 1
+    tr_instances = int(instances * 0.70)
+    vl_instances = int(instances * 0.15)
     tr_instances = int(instances * config["split"]["train"])
     vl_instances = int(instances * config["split"]["val"])
 
@@ -70,45 +66,42 @@ def prepare(config, station, T, H, model_type):
     scale = np.where(vmax - vmin == 0, 1.0, vmax - vmin)
     scaled = (all_values - vmin) / scale
 
-    X, Y, TC = make_windows(scaled, T, H, target_idx, time_codes(ts), model_type)
-
+    X, Y = make_windows(scaled, T, H, target_idx, model_type)
     sl = {
         "train": slice(0, tr_instances),
         "val": slice(tr_instances, tr_instances + vl_instances),
         "test": slice(tr_instances + vl_instances, instances)
     }
-
     SPLITS_DIR.mkdir(parents=True, exist_ok=True)
     with open(SPLITS_DIR / f"{station}_T{T}_H{H}.json", "w") as f:
         json.dump({k: [s.start, s.stop] for k, s in sl.items()}, f)
 
-    data = {k: (torch.from_numpy(X[s]), torch.from_numpy(Y[s]), torch.from_numpy(TC[s])) for k, s in sl.items()}
+    data = {k: (torch.from_numpy(X[s]), torch.from_numpy(Y[s])) for k, s in sl.items()}
     meta = dict(target_idx=target_idx, in_dim=X.shape[-1], num_nodes=X.shape[2], y_min=vmin[target_idx, [0,1]],
                 y_scale=scale[target_idx, [0,1]], timestamps=np.asarray(ts), test_start=sl["test"].start)
     return data, meta
 
 # model train and eval
-def run_epoch(model, loader, device, optimizer=None, grad_clip=None):
+def run_epoch(model, loader, device, optimizer=None, grad_clip=None, target_idx=None):
     train = optimizer is not None
     model.train(train)
     criterion, total_loss, instance_count = nn.MSELoss(), 0.0, 0
 
     with torch.set_grad_enabled(train):
-        for x, y, tc in loader:
-            x, y, tc = x.to(device), y.to(device), tc.to(device) # x-> [B, T, N, F], y-> [B, T, N, 2], tc-> [B, T, 3]
+        for x, y in loader:
+            x, y = x.to(device), y.to(device) # x-> [B, T, N, F], y-> [B, T, N, 2]
 
             if isinstance(model, LSTMModel):
                 x = x.squeeze(2)
                 y = y.squeeze(2)
+            else:
+                y = y[:, :, target_idx, :]
 
-            # batch_pred = model(x, tc)
             batch_pred = model(x)
             batch_loss = criterion(y, batch_pred)
             if train:
                 optimizer.zero_grad()
                 batch_loss.backward()
-                # total_norm = torch.norm(torch.stack([p.grad.norm() for p in model.parameters() if p.grad is not None]))
-                # print(total_norm.item())
                 if grad_clip:
                     nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                 optimizer.step()
@@ -121,8 +114,6 @@ def predict(model, X, device, y_min=0, y_scale=0, bs=256):
     model.eval()
     out = []
     for i in range(0, len(X), bs):
-        # out.append(model(X[i:i + bs].to(device), TC[i:i + bs].to(device)).cpu().numpy())
-
         if isinstance(model, LSTMModel):
             X = X.squeeze(2)
         out.append(model(X[i:i + bs].to(device)).cpu().numpy())
@@ -159,19 +150,16 @@ def main():
     dropout = args.dropout if args.dropout != None else config["model"]["dropout"]
 
     set_seed(seed)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     data, meta = prepare(config, station, T, H, str(args.model))
-
     cls, group = MODELS[args.model]
 
     if args.model == "gcn_lstm":
         model = cls(in_dim=meta["in_dim"], gcn_layers=gcn_layers, lstm_layers=lstm_layers, horizon=H,
-                    hidden=config["model"]["hidden"], dropout=dropout).to(device)
+                    hidden=config["model"]["hidden"], target_idx=meta["target_idx"], dropout=dropout).to(device)
     elif args.model == "gat_lstm":
         model = cls(in_dim=meta["in_dim"], gat_layers=gat_layers, lstm_layers=lstm_layers, horizon=H,
-                    hidden=config["model"]["hidden"], dropout=dropout).to(device)
+                    hidden=config["model"]["hidden"], target_idx=meta["target_idx"], dropout=dropout).to(device)
     else:
         model = cls(in_dim=meta["in_dim"], lstm_layers=lstm_layers, horizon=H,
                     hidden=config["model"]["hidden"], dropout=dropout).to(device)
@@ -189,15 +177,31 @@ def main():
             f"{args.model} | {station} | T={T} H={H} | "
             f"lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
 
-    mk = lambda k: DataLoader(TensorDataset(*data[k][:3]),
-                              batch_size=tc["batch_size"],
-                              shuffle=False,
-                              num_workers=tc["num_workers"],
-                              persistent_workers=True,
-                              prefetch_factor=2
-                              )
+    # mk = lambda k: DataLoader(TensorDataset(*data[k][:3]),
+    #                           batch_size=tc["batch_size"],
+    #                           shuffle=False,
+    #                           num_workers=tc["num_workers"],
+    #                           persistent_workers=True,
+    #                           prefetch_factor=2
+    #                           )
+    train_dl = DataLoader(
+        TensorDataset(*data["train"]),
+        batch_size=tc["batch_size"],
+        shuffle=True,
+        num_workers=tc["num_workers"],
+        persistent_workers=tc["num_workers"] > 0,
+        prefetch_factor=2 if tc["num_workers"] > 0 else None
+    )
 
-    train_dl, val_dl = mk("train"), mk("val")
+    val_dl = DataLoader(
+        TensorDataset(*data["val"]),
+        batch_size=tc["batch_size"],
+        shuffle=False,
+        num_workers=tc["num_workers"],
+        persistent_workers=tc["num_workers"] > 0,
+        prefetch_factor=2 if tc["num_workers"] > 0 else None
+    )
+    # train_dl, val_dl = mk("train"), mk("val")
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=tc["weight_decay"])
 
     if args.model == "gcn_lstm":
@@ -218,16 +222,14 @@ def main():
     report_val_rmse, report_val_mae, report_val_r2 = 0.0, 0.0, 0.0
 
     for epoch in range(1, epochs + 1):
-        train_loss = run_epoch(model, train_dl, device, optimizer, tc["grad_clip"])
-        X_val, Y_val, TC_val = data["val"]
-
-        val_loss = run_epoch(model, val_dl, device)
-
-        val_metrics = compute_all((Y_val.cpu().numpy() * meta["y_scale"]) + meta["y_min"],
-                               predict(model, X_val, device, meta["y_min"], meta["y_scale"]))
-
+        train_loss = run_epoch(model, train_dl, device, optimizer, tc["grad_clip"], target_idx=meta["target_idx"])
+        X_val, Y_val = data["val"]
+        X_val = X_val
+        Y_val = Y_val[:, :, meta["target_idx"], :]
+        val_loss = run_epoch(model, val_dl, device, target_idx=meta["target_idx"])
+        pred = predict(model, X_val, device, meta["y_min"], meta["y_scale"])
+        val_metrics = compute_all((Y_val.cpu().numpy() * meta["y_scale"]) + meta["y_min"], pred)
         val_rmse, val_mae, val_r2 = val_metrics["RMSE"], val_metrics["MAE"], val_metrics["R2"]
-
         history.append({"epoch": epoch, "train_mse_scaled": train_loss, "val_mse_scaled": val_loss,
                         "val_rmse": val_rmse, "val_mae": val_mae})
         print(f"epoch {epoch:3d} | train MSE (scaled) {train_loss:.3f} | val MSE (scaled) {val_loss:.3f}"
@@ -245,16 +247,11 @@ def main():
 
     # test
     model.load_state_dict(torch.load(best_model_path, map_location=device))
-    X_test, Y_test, TC_test = data["test"]
-
+    X_test, Y_test = data["test"]
+    X_test = X_test
+    Y_test = Y_test[:, :, meta["target_idx"], :]
+    Y_test_scaled = (Y_test.cpu().numpy() * meta["y_scale"]) + meta["y_min"]
     pred = predict(model, X_test, device, meta["y_min"], meta["y_scale"])
-    if args.model == "lstm":
-        pred = pred
-        Y_test_scaled = (Y_test.squeeze(2).cpu().numpy() * meta["y_scale"]) + meta["y_min"]
-    else:
-        pred = pred[:, :, meta["target_idx"], :]
-        Y_test_scaled = (Y_test[:, :, meta["target_idx"], :].cpu().numpy() * meta["y_scale"]) + meta["y_min"]
-
     metrics = {"overall": compute_all(Y_test_scaled, pred),
                **{f"step_{h + 1}": compute_all(Y_test_scaled[:, h, :], pred[:, h, :]) for h in range(H)},
                ** {f"target_feature_{t + 1}": compute_all(Y_test_scaled[:, :, t], pred[:, :, t]) for t in range(Y_test_scaled.shape[2])}
@@ -262,16 +259,12 @@ def main():
     print("TEST:", json.dumps(metrics["overall"], indent=2))
 
     df = pd.DataFrame()
-
     for h in range(Y_test_scaled.shape[1]):
         df[f"PM2.5_Actual_H{h + 1}"] = Y_test_scaled[:, h, 0]
         df[f"PM2.5_Pred_H{h + 1}"] = pred[:, h, 0]
-
         df[f"PM10_Actual_H{h + 1}"] = Y_test_scaled[:, h, 1]
         df[f"PM10_Pred_H{h + 1}"] = pred[:, h, 1]
-
     start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
-
     df["Time"] = pd.to_datetime(meta["timestamps"][start + T + np.arange(H)])
     df["Time"] = pd.to_datetime(df["Time"].apply(lambda x: x[0]))
     df.set_index("Time", inplace=True)
@@ -288,8 +281,6 @@ def main():
 
     # plots
     start = (meta["test_start"] + np.arange(len(X_test)))[:, None] * H
-    # start = meta["test_start"] + np.arange(len(X_test))[:, None] * H
-    # past_times = meta["timestamps"][start + np.arange(T)]
     future_times = meta["timestamps"][start + T + np.arange(H)]
 
     plot_loss_curves(hist_df, fig_dir / f"{tag}_loss.png", best_epoch=best_epoch,
@@ -312,7 +303,6 @@ def main():
                     f"{report_val_rmse:.4f}", f"{report_val_mae:.4f}",
                     f"{report_val_r2:.4f}", f"{o['RMSE']:.4f}",
                     f"{o['MAE']:.4f}", f"{o['R2']:.4f}", f"{(time.time() - t0) / 60:.2f}"])
-
 
 if __name__ == "__main__":
     main()

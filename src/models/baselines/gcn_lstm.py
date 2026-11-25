@@ -1,60 +1,60 @@
-# GCN - learns spatial features between the stations
-# shared LSTM - learns each node's temporal pattern
-import os
-from pathlib import Path
-
-import numpy as np
+from src.models.baselines.graph_utils import load_graph, batch_edges
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.models.model_utils import normalize_adjacency
-from src.models.baselines.lstm import LSTMModel
-from src.utils.paths import EXTERNAL_DIR
-
-def get_adjacency():
-    adj_matrix_path = os.path.join(EXTERNAL_DIR, "adjacency_matrix.npy")
-    adj = np.load(adj_matrix_path) if Path(str(adj_matrix_path)).exists() else None
-    return adj
-
-def get_weighted_adjacency():
-    w_adj_matrix_path = os.path.join(EXTERNAL_DIR, "weighted_adjacency_matrix.npy")
-    w_adj = np.load(w_adj_matrix_path) if Path(str(w_adj_matrix_path)).exists() else None
-    return w_adj
-
-class GraphConv(nn.Module):
-    def __init__(self, in_dim, out_dim): # out (B, H, 2)
-        super().__init__()
-        self.linear = nn.Linear(in_dim, out_dim)
-    def forward(self, x, a_hat):
-        out = self.linear(x)
-        out = F.gelu(torch.einsum("nm,...md->...nd", a_hat, out))
-        # out = F.relu(torch.einsum("nm,...md->...nd", a_hat, out))
-        return out
+from torch_geometric.nn import GCNConv
 
 class GCNLSTM(nn.Module):
-    def __init__(self, in_dim, horizon=1,
-                 hidden=64, gcn_layers=2, lstm_layers=1, dropout=0.5, **kwargs):
+    def __init__(self, in_dim, horizon=1, hidden=64, gcn_layers=2, lstm_layers=1, target_idx=None, dropout=0.5, **kwargs):
         super().__init__()
-        adj = get_adjacency()
-        w_adj = get_weighted_adjacency()
-        assert adj is not None, "GCN-LSTM needs an adjacency matrix"
+        edge_index, edge_weight, num_nodes = load_graph(weighted=True)
+        self.num_nodes = num_nodes
         self.horizon = horizon
-        self.register_buffer("normalized_adj", normalize_adjacency(torch.as_tensor(w_adj, dtype=torch.float32)))
+        self.target_idx = target_idx
+        self.register_buffer("edge_index", edge_index)
+        self.register_buffer("edge_weight", edge_weight)
+        # Spatial learning
+        self.gcn = nn.ModuleList()
         dims = [in_dim] + [hidden] * gcn_layers
-        lstm_in_dim = dims[-1]
-        self.gcn = nn.ModuleList(GraphConv(dims[i], dims[i + 1]) for i in range(gcn_layers))
-        self.drop = nn.Dropout(dropout)
-        self.lstm = LSTMModel(lstm_in_dim, self.horizon, hidden, lstm_layers, dropout)
+        for i in range(gcn_layers):
+            self.gcn.append(GCNConv(dims[i], dims[i + 1], cached=False, normalize=True))
+        self.dropout = nn.Dropout(dropout)
+        # Shared temporal learning
+        self.lstm = nn.LSTM(
+            input_size=hidden,
+            hidden_size=hidden,
+            num_layers=lstm_layers,
+            batch_first=True,
+            dropout=dropout if lstm_layers > 1 else 0.0
+        )
+        self.norm = nn.LayerNorm(hidden)
+        # Multi-step, multi-feature prediction
+        self.head = nn.Sequential(
+            nn.Linear(hidden, hidden * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden * 2, 2 * horizon)
+        )
 
     def forward(self, x):
-        B, T, N, _ = x.shape
-        h = x
+        B, T, N, F_in = x.shape
+        h = x.reshape(B * T * N, F_in) # [B,T,N,F] -> [B*T*N,F]
+        # Duplicate graph for each batch/timestep
+        edge_index, edge_weight = batch_edges(self.edge_index, self.edge_weight, B * T, N)
+        # Spatial graph convolution
         for layer in self.gcn:
-            h = self.drop(layer(h, self.normalized_adj))      # (B, T, N, F)
-
-        h = h.permute(0, 2, 1, 3).reshape(B * N, T, -1) # (B*N, T, F)
-        out = self.lstm(h)
-        last = out.reshape(B, N, self.horizon, -1)
-        last = last.permute(0, 2, 1, 3)  # (B, H, N, 2)
-
-        return last
+            h = layer(h, edge_index, edge_weight)
+            h = F.relu(h)
+            h = self.dropout(h)
+        h = h.reshape(B, T, N, -1) # [B*T*N,hidden] -> [B,T,N,hidden]
+        h = h.permute(0, 2, 1, 3).reshape(B * N, T, -1) # [B,T,N,hidden] -> [B*N,T,hidden]
+        # Shared temporal LSTM
+        out, _ = self.lstm(h)
+        # Last temporal representation
+        out = self.norm(out[:, -1, :])
+        # Predict H steps for each station
+        out = self.head(out)
+        out = out.reshape(B, N, self.horizon, 2)
+        out = out.permute(0, 2, 1, 3) # [B,N,H,2] -> [B,H,N,2]
+        out = out[:, :, self.target_idx, :] # [B,H,2]
+        return out

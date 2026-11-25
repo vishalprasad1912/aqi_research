@@ -95,7 +95,8 @@ def build_adjacency(stations_coor_df, weighting="gaussian", sigma=None, eps=0.01
     else:
         raise ValueError(f"unknown weighting: {weighting}")
 
-    np.fill_diagonal(adj, 1.0)
+    # np.fill_diagonal(adj, 1.0)
+    adj = adj * (1 - np.eye(n))
 
     # diagnostics worth reporting in the paper
     # degree = (adj > 0).sum(axis=1) - 1
@@ -124,15 +125,12 @@ def normalize_adjacency(adj):
 
 
 class PredictionHead(nn.Module):
-    # Fully connected task layer: hidden -> 256 -> len(target_idx)
-
-    def __init__(self, hidden, horizon, dropout=0.1): # changed mid from 256 to 32
+    def __init__(self, hidden, horizon, dropout=0.1):
         super().__init__()
         self.horizon = horizon
         self.net = nn.Sequential(
             nn.Linear(hidden, hidden * 2),
-            nn.GELU(),
-            # nn.ReLU(),
+            nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden * 2, 2 * self.horizon)
         )

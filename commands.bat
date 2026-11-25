@@ -1,21 +1,21 @@
-@REM python -m src.training.train --model gcn_lstm --station pusa
-@REM python -m src.training.train --model gat_lstm --station pusa
-@REM python -m src.training.train --model lstm --station pusa
-@REM python -m src.training.train --model gcn_lstm --station wazirpur
-@REM python -m src.training.train --model gat_lstm --station wazirpur
-@REM python -m src.training.train --model lstm --station wazirpur
-@REM python -m src.training.train --model gcn_lstm --station najafgarh
-@REM python -m src.training.train --model gat_lstm --station najafgarh
-@REM python -m src.training.train --model lstm --station najafgarh
+python -m src.training.train --model gcn_lstm --station pusa
+python -m src.training.train --model gcn_lstm --station wazirpur
+python -m src.training.train --model gcn_lstm --station najafgarh
 python -m src.training.train --model gcn_lstm --station narela
-python -m src.training.train --model gat_lstm --station narela
-python -m src.training.train --model lstm --station narela
 python -m src.training.train --model gcn_lstm --station vivek_vihar
-python -m src.training.train --model gat_lstm --station vivek_vihar
-python -m src.training.train --model lstm --station vivek_vihar
 python -m src.training.train --model gcn_lstm --station dr_karni_singh_shooting_range
-python -m src.training.train --model gat_lstm --station dr_karni_singh_shooting_range
-python -m src.training.train --model lstm --station dr_karni_singh_shooting_range
 python -m src.training.train --model gcn_lstm --station dwarka_sector_8
+python -m src.training.train --model gat_lstm --station pusa
+python -m src.training.train --model gat_lstm --station wazirpur
+python -m src.training.train --model gat_lstm --station najafgarh
+python -m src.training.train --model gat_lstm --station narela
+python -m src.training.train --model gat_lstm --station vivek_vihar
+python -m src.training.train --model gat_lstm --station dr_karni_singh_shooting_range
 python -m src.training.train --model gat_lstm --station dwarka_sector_8
-python -m src.training.train --model lstm --station dwarka_sector_8
+@REM python -m src.training.train --model lstm --station pusa
+@REM python -m src.training.train --model lstm --station wazirpur
+@REM python -m src.training.train --model lstm --station najafgarh
+@REM python -m src.training.train --model lstm --station narela
+@REM python -m src.training.train --model lstm --station vivek_vihar
+@REM python -m src.training.train --model lstm --station dr_karni_singh_shooting_range
+@REM python -m src.training.train --model lstm --station dwarka_sector_8

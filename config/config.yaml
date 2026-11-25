@@ -5,7 +5,7 @@ horizon: 8               # H
 split: {train: 0.70, val: 0.15, test: 0.15}   # chronological
 model:
   hidden: 32
-  heads: 2
+  heads: 4
   dropout: 0.0
 train:
   epochs: 100
@@ -13,7 +13,7 @@ train:
   gcn_layers: 1
   gat_layers: 1
   lstm_layers: 2
-  lr: 0.001
+  lr: 0.0001
   weight_decay: 0.0001
   grad_clip: 3.0
   patience: 25     # early stopping on validation RMSE
