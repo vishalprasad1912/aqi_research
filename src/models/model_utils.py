@@ -40,7 +40,7 @@ def dist_plot(df, type, threshold):
     df.to_csv(os.path.join(EXTERNAL_DIR, f"{type}_distance_matrix.csv"), columns=df.columns, index=True)
 
     plt.figure(figsize=(18, 12))
-    sns.heatmap(data=df, cmap='coolwarm', cbar_kws={'label': f'Distance in Kilometers (Km)' if type != "Adjacency" or "Weighted Adjacency" else None}, annot=True)
+    sns.heatmap(data=df, cmap='coolwarm', cbar_kws={'label': f'Distance in Kilometers (Km)' if type not in ("Adjacency", "Weighted_adjacency") else None}, annot=True)
     if type == "Adjacency" or "Weighted Adjacency":
         plt.title(f"Heatmap of the {type} between the AQI stations", fontsize=24, pad=8, fontweight="bold")
     else:
@@ -82,6 +82,7 @@ def build_adjacency(stations_coor_df, weighting="gaussian", sigma=None, eps=0.01
     if weighting == "binary":
         threshold = off_diag.mean().round(2) if n > 1 else 0.0
         adj = (haversine_distance_matrix < threshold).astype(np.float32)
+        w_adj = adj.copy()
 
     elif weighting == "gaussian":
         if sigma is None:
@@ -95,8 +96,8 @@ def build_adjacency(stations_coor_df, weighting="gaussian", sigma=None, eps=0.01
     else:
         raise ValueError(f"unknown weighting: {weighting}")
 
-    # np.fill_diagonal(adj, 1.0)
-    adj = adj * (1 - np.eye(n))
+    np.fill_diagonal(adj, 0)
+    # np.fill_diagonal(w_adj, 0)
 
     # diagnostics worth reporting in the paper
     # degree = (adj > 0).sum(axis=1) - 1
@@ -114,31 +115,6 @@ def build_adjacency(stations_coor_df, weighting="gaussian", sigma=None, eps=0.01
     dist_plot(weighted_adjacency_df, "Weighted_adjacency", threshold)
 
     return adjacency_df, weighted_adjacency_df
-
-
-def normalize_adjacency(adj):
-    # Symmetric normalisation D^-1/2 (A+I) D^-1/2
-    deg = adj.sum(-1) # horizontal sum along rows
-    d_inverse_sqrt = deg.pow(-0.5)
-    # d_inverse_sqrt[torch.isinf(d_inverse_sqrt)] = 0.0
-    return d_inverse_sqrt[:, None] * adj * d_inverse_sqrt[None, :]
-
-
-class PredictionHead(nn.Module):
-    def __init__(self, hidden, horizon, dropout=0.1):
-        super().__init__()
-        self.horizon = horizon
-        self.net = nn.Sequential(
-            nn.Linear(hidden, hidden * 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden * 2, 2 * self.horizon)
-        )
-
-    def forward(self, x):
-        out = self.net(x)
-        return out.view(-1, self.horizon, 2)
-
 
 def count_parameters(model: nn.Module):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

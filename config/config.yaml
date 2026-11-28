@@ -1,11 +1,10 @@
-seed: 42 # 0, 10, 42, 75, 123
+seed: 42
 station: "rohini"           # any one from 17 stations
-input_steps: 24         # T
-horizon: 8               # H
-split: {train: 0.70, val: 0.15, test: 0.15}   # chronological
+input_steps: 24          # T (hours of history)
+horizon: 8          # H (hours to forecast)
+split: {train: 0.70, val: 0.15, test: 0.15}   # chronological, by rows
 model:
   hidden: 32
-  heads: 4
   dropout: 0.0
 train:
   epochs: 100

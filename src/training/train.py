@@ -31,7 +31,6 @@ MODELS = {
 def load_station_df(station):
     data = np.load(PROCESSED_DIR / "stations_data.npz", allow_pickle=True)
     station_names = data["station_names"]
-
     station_to_idx = {name: idx for idx, name in enumerate(station_names)}
     all_values = np.stack([data[f"station_{i}"][:, 1:].astype(np.float32) for i in station_names], axis=0)
     all_values = np.transpose(all_values, (1, 0, 2))
@@ -175,13 +174,6 @@ def main():
             f"{args.model} | {station} | T={T} H={H} | "
             f"lstm_layers={lstm_layers} | params={count_parameters(model):,} | device={device}")
 
-    # mk = lambda k: DataLoader(TensorDataset(*data[k][:3]),
-    #                           batch_size=tc["batch_size"],
-    #                           shuffle=False,
-    #                           num_workers=tc["num_workers"],
-    #                           persistent_workers=True,
-    #                           prefetch_factor=2
-    #                           )
     train_dl = DataLoader(
         TensorDataset(*data["train"]),
         batch_size=tc["batch_size"],
@@ -199,7 +191,6 @@ def main():
         persistent_workers=tc["num_workers"] > 0,
         prefetch_factor=2 if tc["num_workers"] > 0 else None
     )
-    # train_dl, val_dl = mk("train"), mk("val")
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=tc["weight_decay"])
 
     if args.model == "gcn_lstm":
@@ -290,8 +281,11 @@ def main():
     plot_loss_curves(hist_df, fig_dir / f"{tag}_loss.png", best_epoch=best_epoch,
                      title=f"{args.model} - {station}: training vs validation loss")
 
-    plot_test_series(Y_test_scaled, pred, fig_dir / f"{tag}_test_series.png", times=future_times[:, 0],
-                     title=f"{args.model} - {station}: real vs predicted AQI (test set)")
+    plot_test_series(Y_test_scaled, pred, fig_dir / f"{tag}_H{0}_test_series.png", times=future_times[:, 0],
+                     horizon_step=0, title=f"{args.model} - {station}: real vs predicted AQI (test set)")
+
+    plot_test_series(Y_test_scaled, pred, fig_dir / f"{tag}_H{H-1}_test_series.png", times=future_times[:, 0],
+                     horizon_step=H-1, title=f"{args.model} - {station}: real vs predicted AQI (test set)")
 
     log = CONFIG_DIR / "experiment_log.csv"
     new = not log.exists()

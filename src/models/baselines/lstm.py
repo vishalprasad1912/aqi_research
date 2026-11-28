@@ -1,7 +1,5 @@
 import torch.nn as nn
 
-from src.models.model_utils import PredictionHead
-
 class LSTMModel(nn.Module):
     def __init__(self, in_dim, horizon=1, hidden=64, lstm_layers=2, dropout=0.1):
         super().__init__()
